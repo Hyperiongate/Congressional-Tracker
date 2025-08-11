@@ -454,7 +454,7 @@
             ]
         };
 
-        function findRepresentative() {
+        async function findRepresentative() {
             const zipcode = document.getElementById('zipcode').value;
             
             if (zipcode.length !== 5 || isNaN(zipcode)) {
@@ -467,10 +467,21 @@
             resultsDiv.style.display = 'block';
             resultsDiv.innerHTML = '<div class="loading">Finding your representative...</div>';
 
-            // Simulate API call delay
-            setTimeout(() => {
-                displayResults(sampleData);
-            }, 1000);
+            try {
+                // Call your backend API
+                const response = await fetch(`/api/congressman/${zipcode}`);
+                
+                if (!response.ok) {
+                    throw new Error('Failed to fetch data');
+                }
+                
+                const data = await response.json();
+                displayResults(data);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Unable to find representative. Please try again later.');
+            }
         }
 
         function showError(message) {
