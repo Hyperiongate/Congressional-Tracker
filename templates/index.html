@@ -378,82 +378,6 @@
     </div>
 
     <script>
-        // Sample data structure - In production, this would come from APIs
-        const sampleData = {
-            representative: {
-                name: "John Doe",
-                party: "Independent",
-                state: "CA",
-                district: "12",
-                photo: null,
-                office: "123 Capitol Building, Washington, DC 20515",
-                phone: "(202) 555-0123",
-                website: "https://doe.house.gov"
-            },
-            votingRecord: [
-                {
-                    bill: "H.R. 1234 - Infrastructure Investment Act",
-                    date: "2024-03-15",
-                    vote: "Yes",
-                    description: "A bill to provide funding for national infrastructure improvements"
-                },
-                {
-                    bill: "H.R. 5678 - Healthcare Reform Act",
-                    date: "2024-02-28",
-                    vote: "No",
-                    description: "A bill to reform healthcare insurance regulations"
-                },
-                {
-                    bill: "H.R. 9012 - Climate Action Bill",
-                    date: "2024-01-20",
-                    vote: "Yes",
-                    description: "A bill to address climate change through renewable energy incentives"
-                }
-            ],
-            funding: {
-                totalRaised: "$2,345,678",
-                sources: [
-                    { name: "Individual Contributions", amount: "$1,234,567", percentage: 52.6 },
-                    { name: "PAC Contributions", amount: "$876,543", percentage: 37.4 },
-                    { name: "Self-Funding", amount: "$234,568", percentage: 10.0 }
-                ]
-            },
-            calendar: [
-                {
-                    date: "Aug 15",
-                    time: "10:00 AM",
-                    event: "Town Hall Meeting",
-                    location: "Community Center, District 12"
-                },
-                {
-                    date: "Aug 18",
-                    time: "2:00 PM",
-                    event: "Committee Hearing on Education",
-                    location: "Capitol Building"
-                },
-                {
-                    date: "Aug 22",
-                    time: "6:00 PM",
-                    event: "Fundraising Dinner",
-                    location: "Downtown Hotel"
-                }
-            ],
-            transcripts: [
-                {
-                    title: "Floor Speech on Infrastructure Bill",
-                    date: "2024-03-14",
-                    description: "Representative Doe's speech supporting the Infrastructure Investment Act",
-                    downloadUrl: "#"
-                },
-                {
-                    title: "Town Hall Q&A Session",
-                    date: "2024-02-10",
-                    description: "Complete transcript from February town hall meeting",
-                    downloadUrl: "#"
-                }
-            ]
-        };
-
         async function findRepresentative() {
             const zipcode = document.getElementById('zipcode').value;
             
@@ -509,25 +433,28 @@
                     </div>
 
                     <div class="tabs">
-                        <button class="tab active" onclick="showTab('voting')">Voting Record</button>
-                        <button class="tab" onclick="showTab('funding')">Campaign Funding</button>
-                        <button class="tab" onclick="showTab('calendar')">Calendar</button>
-                        <button class="tab" onclick="showTab('transcripts')">Transcripts</button>
+                        <button class="tab active" onclick="showTab('voting', event)">Voting Record</button>
+                        <button class="tab" onclick="showTab('funding', event)">Campaign Funding</button>
+                        <button class="tab" onclick="showTab('calendar', event)">Calendar</button>
+                        <button class="tab" onclick="showTab('transcripts', event)">Transcripts</button>
                     </div>
 
                     <div id="voting" class="tab-content active">
                         <h3 style="margin-bottom: 20px;">Recent Voting Record</h3>
                         <div class="voting-record">
-                            ${data.votingRecord.map(vote => `
-                                <div class="vote-item">
-                                    <h4>${vote.bill}</h4>
-                                    <p>${vote.description}</p>
-                                    <p style="color: #666; font-size: 14px;">Date: ${vote.date}</p>
-                                    <span class="vote-result ${vote.vote === 'Yes' ? 'vote-yes' : 'vote-no'}">
-                                        Voted: ${vote.vote}
-                                    </span>
-                                </div>
-                            `).join('')}
+                            ${data.votingRecord && data.votingRecord.length > 0 ? 
+                                data.votingRecord.map(vote => `
+                                    <div class="vote-item">
+                                        <h4>${vote.bill}</h4>
+                                        <p>${vote.description}</p>
+                                        <p style="color: #666; font-size: 14px;">Date: ${vote.date}</p>
+                                        <span class="vote-result ${vote.vote === 'Yes' ? 'vote-yes' : 'vote-no'}">
+                                            Voted: ${vote.vote}
+                                        </span>
+                                    </div>
+                                `).join('') :
+                                '<p style="color: #666;">Voting record data coming soon...</p>'
+                            }
                         </div>
                     </div>
 
@@ -535,58 +462,67 @@
                         <h3 style="margin-bottom: 20px;">Campaign Funding Sources</h3>
                         <div class="funding-chart">
                             <h2 style="color: #667eea; margin-bottom: 20px;">Total Raised: ${data.funding.totalRaised}</h2>
-                            ${data.funding.sources.map(source => `
-                                <div style="margin-bottom: 15px; text-align: left;">
-                                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                                        <span style="font-weight: 600;">${source.name}</span>
-                                        <span>${source.amount}</span>
-                                    </div>
-                                    <div style="background: #e0e0e0; border-radius: 10px; height: 30px; overflow: hidden;">
-                                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                                                    height: 100%; width: ${source.percentage}%; 
-                                                    border-radius: 10px; transition: width 1s ease;">
+                            ${data.funding.sources && data.funding.sources.length > 0 ?
+                                data.funding.sources.map(source => `
+                                    <div style="margin-bottom: 15px; text-align: left;">
+                                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                                            <span style="font-weight: 600;">${source.name}</span>
+                                            <span>${source.amount}</span>
                                         </div>
+                                        <div style="background: #e0e0e0; border-radius: 10px; height: 30px; overflow: hidden;">
+                                            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                                        height: 100%; width: ${source.percentage}%; 
+                                                        border-radius: 10px; transition: width 1s ease;">
+                                            </div>
+                                        </div>
+                                        <p style="color: #666; font-size: 14px; margin-top: 5px;">${source.percentage}% of total</p>
                                     </div>
-                                    <p style="color: #666; font-size: 14px; margin-top: 5px;">${source.percentage}% of total</p>
-                                </div>
-                            `).join('')}
+                                `).join('') :
+                                '<p style="color: #666;">Campaign finance data is being loaded...</p>'
+                            }
                         </div>
                     </div>
 
                     <div id="calendar" class="tab-content">
                         <h3 style="margin-bottom: 20px;">Upcoming Events</h3>
                         <div class="calendar-events">
-                            ${data.calendar.map(event => `
-                                <div class="event-item">
-                                    <div class="event-date">${event.date}</div>
-                                    <div>
-                                        <h4 style="margin-bottom: 5px;">${event.event}</h4>
-                                        <p style="color: #666; margin: 0;">📍 ${event.location}</p>
-                                        <p style="color: #666; margin: 0;">🕐 ${event.time}</p>
+                            ${data.calendar && data.calendar.length > 0 ?
+                                data.calendar.map(event => `
+                                    <div class="event-item">
+                                        <div class="event-date">${event.date}</div>
+                                        <div>
+                                            <h4 style="margin-bottom: 5px;">${event.event}</h4>
+                                            <p style="color: #666; margin: 0;">📍 ${event.location}</p>
+                                            <p style="color: #666; margin: 0;">🕐 ${event.time}</p>
+                                        </div>
                                     </div>
-                                </div>
-                            `).join('')}
+                                `).join('') :
+                                '<p style="color: #666;">Calendar events coming soon...</p>'
+                            }
                         </div>
                     </div>
 
                     <div id="transcripts" class="tab-content">
                         <h3 style="margin-bottom: 20px;">Public Speaking Transcripts</h3>
-                        ${data.transcripts.map(transcript => `
-                            <div class="transcript-item">
-                                <h4>${transcript.title}</h4>
-                                <p style="color: #666; margin: 10px 0;">${transcript.description}</p>
-                                <p style="color: #666; font-size: 14px;">Date: ${transcript.date}</p>
-                                <a href="${transcript.downloadUrl}" class="download-btn">
-                                    📄 Download Transcript
-                                </a>
-                            </div>
-                        `).join('')}
+                        ${data.transcripts && data.transcripts.length > 0 ?
+                            data.transcripts.map(transcript => `
+                                <div class="transcript-item">
+                                    <h4>${transcript.title}</h4>
+                                    <p style="color: #666; margin: 10px 0;">${transcript.description}</p>
+                                    <p style="color: #666; font-size: 14px;">Date: ${transcript.date}</p>
+                                    <a href="${transcript.downloadUrl}" class="download-btn">
+                                        📄 Download Transcript
+                                    </a>
+                                </div>
+                            `).join('') :
+                            '<p style="color: #666;">Transcripts coming soon...</p>'
+                        }
                     </div>
                 </div>
             `;
         }
 
-        function showTab(tabName) {
+        function showTab(tabName, event) {
             // Hide all tabs
             document.querySelectorAll('.tab-content').forEach(tab => {
                 tab.classList.remove('active');
