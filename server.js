@@ -50,8 +50,8 @@ app.get('/api/congressman/:zipcode', async (req, res) => {
     console.log(`Request for ZIP: ${zipcode}`);
     
     try {
-        // Use GitHub URL directly to avoid SSL issues
-        const legislatorsUrl = 'https://raw.githubusercontent.com/unitedstates/congress-legislators/main/legislators-current.json';
+        // Use GitHub Pages hosted URL (the correct one!)
+        const legislatorsUrl = 'https://unitedstates.github.io/congress-legislators/legislators-current.json';
         console.log('Fetching from:', legislatorsUrl);
         
         const legislatorsResponse = await fetch(legislatorsUrl);
@@ -264,7 +264,7 @@ app.get('/health', (req, res) => {
 // Debug endpoint
 app.get('/debug/test', async (req, res) => {
     try {
-        const url = 'https://raw.githubusercontent.com/unitedstates/congress-legislators/main/legislators-current.json';
+        const url = 'https://unitedstates.github.io/congress-legislators/legislators-current.json';
         const response = await fetch(url);
         const data = await response.json();
         
