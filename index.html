@@ -493,9 +493,9 @@
             const rep = data.representative;
             
             resultsDiv.innerHTML = `
-                ${data.metadata && data.metadata.message ? `
+                ${data.metadata && data.metadata.accuracy ? `
                     <div style="background: #fff3cd; color: #856404; padding: 15px; border-radius: 10px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
-                        <strong>Note:</strong> ${data.metadata.message}
+                        <strong>Note:</strong> ${data.metadata.accuracy}
                     </div>
                 ` : ''}
                 
