@@ -370,6 +370,14 @@
                 <button onclick="findRepresentative()">Find My Representative</button>
             </div>
             <p style="color: #666; font-size: 14px;">Enter your 5-digit ZIP code to find your congressional representative</p>
+            
+            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+                <p style="color: #666; font-size: 14px; margin-bottom: 10px;">Or search by name:</p>
+                <div class="search-box">
+                    <input type="text" id="nameSearch" placeholder="Search by representative name or state">
+                    <button onclick="searchByName()">Search</button>
+                </div>
+            </div>
         </div>
 
         <div id="results" class="results-section">
@@ -408,6 +416,72 @@
             }
         }
 
+        async function searchByName() {
+            const query = document.getElementById('nameSearch').value.trim();
+            
+            if (!query) {
+                showError('Please enter a name or state to search');
+                return;
+            }
+
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.style.display = 'block';
+            resultsDiv.innerHTML = '<div class="loading">Searching...</div>';
+
+            try {
+                const response = await fetch(`/api/search/${encodeURIComponent(query)}`);
+                
+                if (!response.ok) {
+                    throw new Error('Search failed');
+                }
+                
+                const data = await response.json();
+                
+                if (data.results && data.results.length > 0) {
+                    displaySearchResults(data.results);
+                } else {
+                    showError('No representatives found matching your search');
+                }
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Search failed. Please try again.');
+            }
+        }
+
+        function displaySearchResults(results) {
+            const resultsDiv = document.getElementById('results');
+            
+            resultsDiv.innerHTML = `
+                <div class="congressman-card">
+                    <h3 style="margin-bottom: 20px;">Search Results</h3>
+                    <div style="display: grid; gap: 15px;">
+                        ${results.map(rep => `
+                            <div class="vote-item" style="cursor: pointer;" onclick="loadRepresentative('${rep.state}', '${rep.district || 0}')">
+                                <h4>${rep.name}</h4>
+                                <p>${rep.party} - ${rep.state} ${rep.district ? `District ${rep.district}` : 'At-Large'}</p>
+                                <p style="color: #666; font-size: 14px;">${rep.type === 'sen' ? 'Senator' : 'Representative'}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        async function loadRepresentative(state, district) {
+            // For now, just search by a ZIP code from that state
+            // In production, you'd have a direct lookup endpoint
+            const stateZips = {
+                'CA': '90210', 'NY': '10001', 'TX': '75001', 'FL': '33101',
+                'IL': '60601', 'PA': '19019', 'OH': '44101', 'GA': '30301',
+                'NC': '27601', 'MI': '48201'
+            };
+            
+            const zipcode = stateZips[state] || '10001';
+            document.getElementById('zipcode').value = zipcode;
+            findRepresentative();
+        }
+
         function showError(message) {
             const resultsDiv = document.getElementById('results');
             resultsDiv.style.display = 'block';
@@ -419,16 +493,30 @@
             const rep = data.representative;
             
             resultsDiv.innerHTML = `
+                ${data.metadata && data.metadata.message ? `
+                    <div style="background: #fff3cd; color: #856404; padding: 15px; border-radius: 10px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
+                        <strong>Note:</strong> ${data.metadata.message}
+                    </div>
+                ` : ''}
+                
                 <div class="congressman-card">
                     <div class="congressman-header">
                         <div class="congressman-photo">
-                            ${rep.name.split(' ').map(n => n[0]).join('')}
+                            ${rep.photo ? `<img src="${rep.photo}" alt="${rep.name}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">` : rep.name.split(' ').map(n => n[0]).join('')}
                         </div>
                         <div class="congressman-info">
                             <h2>${rep.name}</h2>
                             <p>${rep.party} - ${rep.state} District ${rep.district}</p>
                             <p>📞 ${rep.phone}</p>
                             <p>🏢 ${rep.office}</p>
+                            ${rep.website ? `<p>🌐 <a href="${rep.website}" target="_blank" style="color: #667eea;">Official Website</a></p>` : ''}
+                            ${rep.socialMedia ? `
+                                <div style="margin-top: 10px;">
+                                    ${rep.socialMedia.twitter ? `<a href="https://twitter.com/${rep.socialMedia.twitter}" target="_blank" style="margin-right: 10px; color: #1DA1F2;">Twitter</a>` : ''}
+                                    ${rep.socialMedia.facebook ? `<a href="https://facebook.com/${rep.socialMedia.facebook}" target="_blank" style="margin-right: 10px; color: #4267B2;">Facebook</a>` : ''}
+                                    ${rep.socialMedia.youtube ? `<a href="https://youtube.com/${rep.socialMedia.youtube}" target="_blank" style="color: #FF0000;">YouTube</a>` : ''}
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
 
@@ -462,11 +550,23 @@
                         <h3 style="margin-bottom: 20px;">Campaign Funding Sources</h3>
                         <div class="funding-chart">
                             <h2 style="color: #667eea; margin-bottom: 20px;">Total Raised: ${data.funding.totalRaised}</h2>
+                            ${data.funding.totalSpent ? `
+                                <div style="display: flex; justify-content: space-around; margin-bottom: 30px; flex-wrap: wrap;">
+                                    <div style="text-align: center; padding: 10px;">
+                                        <p style="color: #666; font-size: 14px; margin-bottom: 5px;">Total Spent</p>
+                                        <p style="font-size: 24px; font-weight: bold; color: #e74c3c;">${data.funding.totalSpent}</p>
+                                    </div>
+                                    <div style="text-align: center; padding: 10px;">
+                                        <p style="color: #666; font-size: 14px; margin-bottom: 5px;">Cash on Hand</p>
+                                        <p style="font-size: 24px; font-weight: bold; color: #27ae60;">${data.funding.cashOnHand}</p>
+                                    </div>
+                                </div>
+                            ` : ''}
                             ${data.funding.sources && data.funding.sources.length > 0 ?
                                 data.funding.sources.map(source => `
                                     <div style="margin-bottom: 15px; text-align: left;">
                                         <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                                            <span style="font-weight: 600;">${source.name}</span>
+                                            <span style="font-weight: 600;">${source.icon || ''} ${source.name}</span>
                                             <span>${source.amount}</span>
                                         </div>
                                         <div style="background: #e0e0e0; border-radius: 10px; height: 30px; overflow: hidden;">
@@ -480,6 +580,18 @@
                                 `).join('') :
                                 '<p style="color: #666;">Campaign finance data is being loaded...</p>'
                             }
+                            
+                            ${data.funding.topContributors && data.funding.topContributors.length > 0 ? `
+                                <h4 style="margin-top: 30px; margin-bottom: 15px;">Top Contributors</h4>
+                                <div style="background: #f8f9fa; padding: 20px; border-radius: 10px;">
+                                    ${data.funding.topContributors.map((contrib, idx) => `
+                                        <div style="display: flex; justify-content: space-between; padding: 10px 0; ${idx < data.funding.topContributors.length - 1 ? 'border-bottom: 1px solid #e0e0e0;' : ''}">
+                                            <span>${contrib.name}</span>
+                                            <span style="font-weight: bold; color: #667eea;">${contrib.amount}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
 
