@@ -1,22 +1,40 @@
 # Dependencies
 node_modules/
+npm-debug.log*
+yarn-error.log*
 
 # Environment variables
 .env
 .env.local
+.env.production
 
 # System files
 .DS_Store
 Thumbs.db
+*.swp
+*~
 
 # IDE files
 .vscode/
 .idea/
+*.sublime-*
 
 # Logs
+logs/
 *.log
-npm-debug.log*
 
 # Build files
 dist/
 build/
+
+# Temporary files
+tmp/
+temp/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
