@@ -51,7 +51,8 @@ async function getCongressMemberId(name, state) {
     if (cached) return cached;
 
     try {
-        const apiKey = process.env.DATAGOVAPI_KEY || process.env.CONGRESS_API_KEY || 'DEMO_KEY';
+        // Get the API key - using the exact env var names from Render
+        const apiKey = process.env.CONGRESS_API_KEY || 'DEMO_KEY';
         const url = `https://api.data.gov/congress/v3/member?api_key=${apiKey}&limit=250`;
         
         const response = await fetch(url);
@@ -199,8 +200,8 @@ async function getEnhancedFundingData(repName) {
     };
     
     try {
-        // Use real API key from environment
-        const apiKey = process.env.DATAGOVAPI_KEY || process.env.FEC_API_KEY || 'DEMO_KEY';
+        // Use FEC API key from environment
+        const apiKey = process.env.FEC_API_KEY || 'DEMO_KEY';
         const searchName = encodeURIComponent(repName);
         const fecSearchUrl = `https://api.open.fec.gov/v1/names/candidates/?q=${searchName}&api_key=${apiKey}`;
         
@@ -424,8 +425,8 @@ app.get('/health', (req, res) => {
         cache_size: cache.size,
         uptime: process.uptime(),
         apis: {
-            congress: process.env.DATAGOVAPI_KEY ? 'Configured' : 'Using DEMO_KEY',
-            fec: process.env.DATAGOVAPI_KEY ? 'Configured' : 'Using DEMO_KEY'
+            congress: process.env.CONGRESS_API_KEY ? 'Configured ✓' : 'Using DEMO_KEY ⚠️',
+            fec: process.env.FEC_API_KEY ? 'Configured ✓' : 'Using DEMO_KEY ⚠️'
         }
     });
 });
@@ -459,5 +460,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Congressional Tracker running on port ${PORT}`);
     console.log(`Visit http://localhost:${PORT} to use the app`);
-    console.log(`API Keys: ${process.env.DATAGOVAPI_KEY ? 'Configured' : 'Using DEMO_KEY'}`);
+    console.log(`Congress API: ${process.env.CONGRESS_API_KEY ? 'Configured ✓' : 'Using DEMO_KEY ⚠️'}`);
+    console.log(`FEC API: ${process.env.FEC_API_KEY ? 'Configured ✓' : 'Using DEMO_KEY ⚠️'}`);
 });
