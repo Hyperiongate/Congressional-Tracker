@@ -24,24 +24,30 @@ function setCache(key, data) {
     cache.set(key, { data, timestamp: Date.now() });
 }
 
-// ZIP to state mapping
-const zipToState = {
-    '10': 'NY', '11': 'NY', '12': 'NY', '13': 'NY', '14': 'NY',
-    '20': 'DC', '21': 'MD', '22': 'VA', '23': 'VA', '24': 'VA',
-    '30': 'GA', '31': 'GA', '32': 'FL', '33': 'FL', '34': 'FL',
-    '40': 'KY', '41': 'KY', '42': 'KY', '43': 'OH', '44': 'OH',
-    '50': 'VT', '51': 'MA', '52': 'MA', '53': 'MA', '54': 'MA',
-    '60': 'IL', '61': 'IL', '62': 'IL', '63': 'MO', '64': 'MO',
-    '70': 'LA', '71': 'LA', '72': 'AR', '73': 'OK', '74': 'OK',
-    '80': 'CO', '81': 'CO', '82': 'WY', '83': 'ID', '84': 'UT',
-    '90': 'CA', '91': 'CA', '92': 'CA', '93': 'CA', '94': 'CA',
-    '95': 'CA', '96': 'CA', '97': 'OR', '98': 'WA', '99': 'AK'
+// More accurate ZIP to state AND district mapping for California
+const zipToDistrict = {
+    // Northern California
+    '94': { state: 'CA', region: 'north', districts: [2, 4, 5, 11, 12, 13, 14] }, // Bay Area
+    '95': { state: 'CA', region: 'north', districts: [1, 3, 4, 6, 7, 8, 9] }, // Sacramento area
+    // Southern California  
+    '90': { state: 'CA', region: 'south', districts: [26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40] },
+    '91': { state: 'CA', region: 'south', districts: [27, 28, 29, 30, 31, 32, 35, 38, 39, 40] },
+    '92': { state: 'CA', region: 'south', districts: [48, 49, 50, 51, 52] }, // San Diego area
+    '93': { state: 'CA', region: 'south', districts: [24, 25, 26] }, // Ventura/Santa Barbara
+    
+    // Other states (simplified)
+    '10': { state: 'NY', region: 'all', districts: [] },
+    '11': { state: 'NY', region: 'all', districts: [] },
+    '20': { state: 'DC', region: 'all', districts: [0] },
+    '30': { state: 'GA', region: 'all', districts: [] },
+    '60': { state: 'IL', region: 'all', districts: [] },
+    '98': { state: 'WA', region: 'all', districts: [] }
 };
 
-// Helper function to get state from ZIP
-function getStateFromZip(zipcode) {
+// Helper function to get state and region from ZIP
+function getLocationFromZip(zipcode) {
     const prefix = zipcode.substring(0, 2);
-    return zipToState[prefix] || null;
+    return zipToDistrict[prefix] || null;
 }
 
 // Main endpoint
@@ -63,20 +69,45 @@ app.get('/api/congressman/:zipcode', async (req, res) => {
         const legislators = await legislatorsResponse.json();
         console.log(`Found ${legislators.length} legislators`);
         
-        // Find representative by state
-        const state = getStateFromZip(zipcode);
-        console.log(`ZIP ${zipcode} -> State: ${state}`);
+        // Find representative by state and region
+        const location = getLocationFromZip(zipcode);
+        console.log(`ZIP ${zipcode} -> Location:`, location);
         
         let rep = null;
         
-        if (state) {
-            rep = legislators.find(l => {
-                const currentTerm = l.terms[l.terms.length - 1];
-                return currentTerm.state === state && currentTerm.type === 'rep';
-            });
+        if (location) {
+            // For California, prioritize Northern CA districts for 94xxx ZIPs
+            if (location.state === 'CA' && location.region === 'north') {
+                // Find reps from Northern California districts
+                const northernCalReps = legislators.filter(l => {
+                    const currentTerm = l.terms[l.terms.length - 1];
+                    return currentTerm.state === 'CA' && 
+                           currentTerm.type === 'rep' &&
+                           location.districts.includes(parseInt(currentTerm.district));
+                });
+                
+                console.log(`Found ${northernCalReps.length} Northern California representatives`);
+                
+                // For 94903 (Marin County), prefer district 2 or 4
+                if (zipcode.startsWith('949')) {
+                    rep = northernCalReps.find(r => {
+                        const district = parseInt(r.terms[r.terms.length - 1].district);
+                        return district === 2 || district === 4;
+                    }) || northernCalReps[0];
+                } else {
+                    rep = northernCalReps[0];
+                }
+            } else if (location) {
+                // For other states or regions
+                rep = legislators.find(l => {
+                    const currentTerm = l.terms[l.terms.length - 1];
+                    return currentTerm.state === location.state && currentTerm.type === 'rep';
+                });
+            }
         }
         
         if (!rep) {
+            // Fallback
             rep = legislators.find(l => l.terms[l.terms.length - 1].type === 'rep');
         }
         
