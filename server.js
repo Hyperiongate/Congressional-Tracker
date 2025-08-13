@@ -6,7 +6,7 @@ const app = express();
 app.use(express.static('.'));
 app.use(express.json());
 
-// Test Google Civic API directly
+// Test Google Civic API
 app.get('/api/test-civic', async (req, res) => {
     const apiKey = process.env.GOOGLE_CIVIC_API_KEY;
     
@@ -17,32 +17,24 @@ app.get('/api/test-civic', async (req, res) => {
         });
     }
     
-    // Test with a known address - simplified URL
     const testAddress = '1600 Pennsylvania Avenue, Washington, DC 20500';
     const url = `https://www.googleapis.com/civicinfo/v2/representatives?address=${encodeURIComponent(testAddress)}&key=${apiKey}`;
     
     try {
-        console.log('Testing Civic API with URL:', url.replace(apiKey, 'API_KEY_HIDDEN'));
         const response = await fetch(url);
         const data = await response.json();
         
         res.json({
             status: response.status,
-            statusText: response.statusText,
             apiKeyPresent: true,
-            apiKeyLength: apiKey.length,
-            dataReceived: !!data,
             error: data.error,
             officesFound: data.offices?.length || 0,
-            officialsFound: data.officials?.length || 0,
-            sampleData: data.offices ? 'Success!' : 'No offices found'
+            officialsFound: data.officials?.length || 0
         });
     } catch (error) {
         res.json({
             error: true,
-            message: error.message,
-            apiKeyPresent: true,
-            apiKeyLength: apiKey.length
+            message: error.message
         });
     }
 });
@@ -56,22 +48,19 @@ app.get('/api/representatives', async (req, res) => {
     }
     
     console.log(`Finding representatives for: ${address}`);
-    const representatives = [];
     
-    // Check if we have Google Civic API key
     const apiKey = process.env.GOOGLE_CIVIC_API_KEY;
     
     if (!apiKey) {
-        console.error('ERROR: GOOGLE_CIVIC_API_KEY not found in environment');
+        console.error('ERROR: GOOGLE_CIVIC_API_KEY not found');
         return res.json({
             error: true,
-            message: 'Google Civic API key not configured. Please add GOOGLE_CIVIC_API_KEY to environment variables.',
+            message: 'Google Civic API key not configured',
             representatives: []
         });
     }
     
-    // Use Google Civic API for perfect accuracy
-    const civicUrl = `https://civicinfo.googleapis.com/civicinfo/v2/representatives?address=${encodeURIComponent(address)}&key=${apiKey}&levels=country&roles=legislatorLowerBody&roles=legislatorUpperBody`;
+    const civicUrl = `https://www.googleapis.com/civicinfo/v2/representatives?address=${encodeURIComponent(address)}&key=${apiKey}`;
     
     try {
         console.log('Calling Google Civic API...');
@@ -81,48 +70,31 @@ app.get('/api/representatives', async (req, res) => {
         console.log('Civic API Status:', civicResponse.status);
         
         if (!civicResponse.ok) {
-            console.error('Civic API Error Response:', responseText);
-            
-            // Parse error
-            try {
-                const errorData = JSON.parse(responseText);
-                return res.json({
-                    error: true,
-                    message: `Google Civic API Error: ${errorData.error?.message || 'Unknown error'}`,
-                    errorCode: errorData.error?.code,
-                    errorDetails: errorData.error?.errors,
-                    representatives: []
-                });
-            } catch (e) {
-                return res.json({
-                    error: true,
-                    message: `Google Civic API Error: ${civicResponse.status} ${civicResponse.statusText}`,
-                    representatives: []
-                });
-            }
+            console.error('Civic API Error:', responseText);
+            const errorData = JSON.parse(responseText);
+            return res.json({
+                error: true,
+                message: errorData.error?.message || 'API Error',
+                representatives: []
+            });
         }
         
         const civicData = JSON.parse(responseText);
-        console.log('Civic API Success! Found:', civicData.offices?.length || 0, 'offices');
+        const representatives = [];
         
-        // Process the response
         if (civicData.offices && civicData.officials) {
             civicData.offices.forEach(office => {
-                // Filter for federal legislators only
                 const officeName = office.name.toLowerCase();
-                const isFederalLegislator = 
-                    (officeName.includes('united states') || officeName.includes('u.s.')) &&
-                    (officeName.includes('representative') || officeName.includes('senator'));
+                const isFederal = (officeName.includes('united states') || officeName.includes('u.s.')) &&
+                                 (officeName.includes('representative') || officeName.includes('senator'));
                 
-                if (isFederalLegislator && office.officialIndices) {
+                if (isFederal && office.officialIndices) {
                     office.officialIndices.forEach(idx => {
                         const official = civicData.officials[idx];
                         
-                        // Extract state and district
                         let state = '';
                         let district = '';
                         
-                        // Parse division ID (e.g., "ocd-division/country:us/state:ca/cd:2")
                         const divisionParts = office.divisionId.split('/');
                         divisionParts.forEach(part => {
                             if (part.startsWith('state:')) {
@@ -133,21 +105,16 @@ app.get('/api/representatives', async (req, res) => {
                             }
                         });
                         
-                        const isHouseRep = officeName.includes('representative');
-                        const isSenator = officeName.includes('senator');
-                        
                         representatives.push({
                             name: official.name,
-                            office: isSenator ? 'Senator' : 'Representative',
+                            office: officeName.includes('senator') ? 'Senator' : 'Representative',
                             party: official.party || 'Unknown',
                             state: state,
                             district: district || null,
                             phone: official.phones?.[0] || '(202) 225-0000',
                             website: official.urls?.[0],
                             photo: official.photoUrl,
-                            address: official.address?.[0] ? formatAddress(official.address[0]) : null,
-                            channels: official.channels,
-                            emails: official.emails,
+                            address: formatAddress(official.address?.[0]),
                             socialMedia: {
                                 twitter: official.channels?.find(c => c.type === 'Twitter')?.id,
                                 facebook: official.channels?.find(c => c.type === 'Facebook')?.id,
@@ -158,20 +125,6 @@ app.get('/api/representatives', async (req, res) => {
                 }
             });
             
-            console.log(`Processed ${representatives.length} representatives`);
-            
-            // Sort: Senators first, then Representative
-            representatives.sort((a, b) => {
-                if (a.office === 'Senator' && b.office !== 'Senator') return -1;
-                if (a.office !== 'Senator' && b.office === 'Senator') return 1;
-                return 0;
-            });
-        }
-            });
-            
-            console.log(`Processed ${representatives.length} representatives`);
-            
-            // Sort: Senators first, then Representative
             representatives.sort((a, b) => {
                 if (a.office === 'Senator' && b.office !== 'Senator') return -1;
                 if (a.office !== 'Senator' && b.office === 'Senator') return 1;
@@ -183,15 +136,15 @@ app.get('/api/representatives', async (req, res) => {
             representatives: representatives,
             address: address,
             normalizedAddress: civicData.normalizedInput,
-            method: 'Google Civic API - Exact Match',
+            method: 'Google Civic API',
             accuracy: 'Perfect'
         });
         
     } catch (error) {
-        console.error('Fatal error:', error);
+        console.error('Error:', error);
         res.json({
             error: true,
-            message: `System error: ${error.message}`,
+            message: error.message,
             representatives: []
         });
     }
@@ -200,23 +153,21 @@ app.get('/api/representatives', async (req, res) => {
 // Get voting records
 app.get('/api/voting-record/:name', async (req, res) => {
     const repName = req.params.name;
+    const votes = [];
     
     try {
-        const votes = [];
-        
         if (process.env.CONGRESS_API_KEY) {
-            const billsUrl = `https://api.data.gov/congress/v3/bill/118?api_key=${process.env.CONGRESS_API_KEY}&limit=10&sort=updateDate+desc`;
-            const billsResponse = await fetch(billsUrl);
+            const url = `https://api.data.gov/congress/v3/bill/118?api_key=${process.env.CONGRESS_API_KEY}&limit=10&sort=updateDate+desc`;
+            const response = await fetch(url);
             
-            if (billsResponse.ok) {
-                const billsData = await billsResponse.json();
-                
-                billsData.bills?.forEach(bill => {
+            if (response.ok) {
+                const data = await response.json();
+                data.bills?.forEach(bill => {
                     votes.push({
                         bill: `${bill.type} ${bill.number} - ${bill.title || 'No title'}`,
                         date: bill.updateDateIncludingText || 'Unknown',
                         vote: 'See Details',
-                        description: bill.title || 'No description available',
+                        description: bill.title || 'No description',
                         status: bill.latestAction?.text || 'In progress'
                     });
                 });
@@ -225,17 +176,15 @@ app.get('/api/voting-record/:name', async (req, res) => {
         
         if (votes.length === 0) {
             votes.push({
-                bill: "Voting record data requires Congress.gov API key",
+                bill: "Voting records require Congress.gov API key",
                 date: new Date().toISOString().split('T')[0],
                 vote: "N/A",
-                description: "Add CONGRESS_API_KEY to environment variables for real data"
+                description: "Configure CONGRESS_API_KEY for real data"
             });
         }
         
         res.json({ votes });
-        
     } catch (error) {
-        console.error('Error fetching voting records:', error);
         res.json({ votes: [] });
     }
 });
@@ -243,7 +192,6 @@ app.get('/api/voting-record/:name', async (req, res) => {
 // Get campaign finance data
 app.get('/api/campaign-finance/:name', async (req, res) => {
     const repName = req.params.name;
-    
     let fundingData = {
         totalRaised: 'N/A',
         totalSpent: 'N/A',
@@ -259,17 +207,16 @@ app.get('/api/campaign-finance/:name', async (req, res) => {
             if (searchResponse.ok) {
                 const searchData = await searchResponse.json();
                 
-                if (searchData.results && searchData.results.length > 0) {
+                if (searchData.results?.[0]) {
                     const candidateId = searchData.results[0].id;
-                    
                     const totalsUrl = `https://api.open.fec.gov/v1/candidates/${candidateId}/totals/?api_key=${process.env.FEC_API_KEY}&cycle=2024`;
                     const totalsResponse = await fetch(totalsUrl);
                     
                     if (totalsResponse.ok) {
                         const totalsData = await totalsResponse.json();
+                        const finances = totalsData.results?.[0];
                         
-                        if (totalsData.results && totalsData.results.length > 0) {
-                            const finances = totalsData.results[0];
+                        if (finances) {
                             const totalReceipts = finances.receipts || 0;
                             
                             fundingData = {
@@ -280,21 +227,9 @@ app.get('/api/campaign-finance/:name', async (req, res) => {
                             };
                             
                             const sources = [
-                                {
-                                    name: "Individual Contributions",
-                                    amount: finances.individual_contributions || 0,
-                                    icon: "👤"
-                                },
-                                {
-                                    name: "PAC Contributions",
-                                    amount: finances.other_political_committee_contributions || 0,
-                                    icon: "🏢"
-                                },
-                                {
-                                    name: "Party Contributions",
-                                    amount: finances.party_committee_contributions || 0,
-                                    icon: "🏛️"
-                                }
+                                { name: "Individual Contributions", amount: finances.individual_contributions || 0, icon: "👤" },
+                                { name: "PAC Contributions", amount: finances.other_political_committee_contributions || 0, icon: "🏢" },
+                                { name: "Party Contributions", amount: finances.party_committee_contributions || 0, icon: "🏛️" }
                             ];
                             
                             fundingData.sources = sources
@@ -311,23 +246,18 @@ app.get('/api/campaign-finance/:name', async (req, res) => {
         }
         
         res.json(fundingData);
-        
     } catch (error) {
-        console.error('Error fetching campaign finance:', error);
         res.json(fundingData);
     }
 });
 
-// Helper function to format address
+// Helper function
 function formatAddress(addr) {
     if (!addr) return null;
     const parts = [];
     if (addr.line1) parts.push(addr.line1);
     if (addr.line2) parts.push(addr.line2);
-    if (addr.line3) parts.push(addr.line3);
-    if (addr.city && addr.state && addr.zip) {
-        parts.push(`${addr.city}, ${addr.state} ${addr.zip}`);
-    }
+    if (addr.city && addr.state) parts.push(`${addr.city}, ${addr.state} ${addr.zip || ''}`);
     return parts.join(', ');
 }
 
@@ -336,11 +266,10 @@ app.get('/health', (req, res) => {
     res.json({ 
         status: 'OK',
         apis: {
-            googleCivic: process.env.GOOGLE_CIVIC_API_KEY ? 'Configured' : 'MISSING - Add GOOGLE_CIVIC_API_KEY',
+            googleCivic: process.env.GOOGLE_CIVIC_API_KEY ? 'Configured' : 'MISSING',
             congress: process.env.CONGRESS_API_KEY ? 'Configured' : 'Missing',
             fec: process.env.FEC_API_KEY ? 'Configured' : 'Missing'
-        },
-        timestamp: new Date().toISOString()
+        }
     });
 });
 
@@ -352,13 +281,7 @@ app.get('/', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Running on port ${PORT}`);
-    console.log('API Status:');
-    console.log(`- Google Civic: ${process.env.GOOGLE_CIVIC_API_KEY ? '✓ Configured' : '✗ MISSING'}`);
-    console.log(`- Congress.gov: ${process.env.CONGRESS_API_KEY ? '✓ Configured' : '✗ Missing'}`);
-    console.log(`- FEC: ${process.env.FEC_API_KEY ? '✓ Configured' : '✗ Missing'}`);
-    
     if (!process.env.GOOGLE_CIVIC_API_KEY) {
-        console.error('\n⚠️  WARNING: Google Civic API key not found!');
-        console.error('   Add GOOGLE_CIVIC_API_KEY to your environment variables');
+        console.error('WARNING: GOOGLE_CIVIC_API_KEY not found!');
     }
 });
