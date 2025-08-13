@@ -157,6 +157,16 @@ app.get('/api/representatives', async (req, res) => {
                     });
                 }
             });
+            
+            console.log(`Processed ${representatives.length} representatives`);
+            
+            // Sort: Senators first, then Representative
+            representatives.sort((a, b) => {
+                if (a.office === 'Senator' && b.office !== 'Senator') return -1;
+                if (a.office !== 'Senator' && b.office === 'Senator') return 1;
+                return 0;
+            });
+        }
             });
             
             console.log(`Processed ${representatives.length} representatives`);
