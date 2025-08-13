@@ -6,21 +6,46 @@ const app = express();
 app.use(express.static('.'));
 app.use(express.json());
 
-// Cache for API responses
-const cache = new Map();
-const CACHE_DURATION = 3600000; // 1 hour
-
-function getCached(key) {
-    const cached = cache.get(key);
-    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-        return cached.data;
+// Test Google Civic API directly
+app.get('/api/test-civic', async (req, res) => {
+    const apiKey = process.env.GOOGLE_CIVIC_API_KEY;
+    
+    if (!apiKey) {
+        return res.json({
+            error: true,
+            message: 'GOOGLE_CIVIC_API_KEY not found in environment variables'
+        });
     }
-    return null;
-}
-
-function setCache(key, data) {
-    cache.set(key, { data, timestamp: Date.now() });
-}
+    
+    // Test with a known address
+    const testAddress = '1600 Pennsylvania Avenue, Washington, DC 20500';
+    const url = `https://www.googleapis.com/civicinfo/v2/representatives?address=${encodeURIComponent(testAddress)}&key=${apiKey}&levels=country&roles=legislatorLowerBody&roles=legislatorUpperBody`;
+    
+    try {
+        console.log('Testing Civic API with URL:', url.replace(apiKey, 'API_KEY_HIDDEN'));
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        res.json({
+            status: response.status,
+            statusText: response.statusText,
+            apiKeyPresent: true,
+            apiKeyLength: apiKey.length,
+            dataReceived: !!data,
+            error: data.error,
+            officesFound: data.offices?.length || 0,
+            officialsFound: data.officials?.length || 0,
+            sampleData: data.offices ? 'Success!' : 'No offices found'
+        });
+    } catch (error) {
+        res.json({
+            error: true,
+            message: error.message,
+            apiKeyPresent: true,
+            apiKeyLength: apiKey.length
+        });
+    }
+});
 
 // Main endpoint - find representatives by address
 app.get('/api/representatives', async (req, res) => {
@@ -30,273 +55,139 @@ app.get('/api/representatives', async (req, res) => {
         return res.status(400).json({ error: true, message: 'Address is required' });
     }
     
-    console.log(`Finding representatives for address: ${address}`);
+    console.log(`Finding representatives for: ${address}`);
+    const representatives = [];
+    
+    // Check if we have Google Civic API key
+    const apiKey = process.env.GOOGLE_CIVIC_API_KEY;
+    
+    if (!apiKey) {
+        console.error('ERROR: GOOGLE_CIVIC_API_KEY not found in environment');
+        return res.json({
+            error: true,
+            message: 'Google Civic API key not configured. Please add GOOGLE_CIVIC_API_KEY to environment variables.',
+            representatives: []
+        });
+    }
+    
+    // Use Google Civic API for perfect accuracy
+    const civicUrl = `https://www.googleapis.com/civicinfo/v2/representatives?address=${encodeURIComponent(address)}&key=${apiKey}&levels=country&roles=legislatorLowerBody&roles=legislatorUpperBody`;
     
     try {
-        const representatives = [];
+        console.log('Calling Google Civic API...');
+        const civicResponse = await fetch(civicUrl);
+        const responseText = await civicResponse.text();
         
-        // If we have Google Civic API key, use it for accurate lookup
-        if (process.env.GOOGLE_CIVIC_API_KEY) {
-            const civicUrl = `https://www.googleapis.com/civicinfo/v2/representatives?address=${encodeURIComponent(address)}&key=${process.env.GOOGLE_CIVIC_API_KEY}&levels=country&roles=legislatorLowerBody&roles=legislatorUpperBody`;
+        console.log('Civic API Status:', civicResponse.status);
+        
+        if (!civicResponse.ok) {
+            console.error('Civic API Error Response:', responseText);
             
-            console.log('Using Google Civic API for accurate lookup');
-            
+            // Parse error
             try {
-                const civicResponse = await fetch(civicUrl);
-                console.log('Civic API response status:', civicResponse.status);
-                
-                if (civicResponse.ok) {
-                    const civicData = await civicResponse.json();
-                    console.log('Civic API returned data:', civicData.offices?.length || 0, 'offices');
-                    
-                    // Process officials from Google Civic API
-                    if (civicData.officials && civicData.offices) {
-                        civicData.offices.forEach(office => {
-                            if (office.officialIndices) {
-                                office.officialIndices.forEach(idx => {
-                                    const official = civicData.officials[idx];
-                                    const isHouse = office.name.includes('Representative') || office.name.includes('House');
-                                    const isSenate = office.name.includes('Senator') || office.name.includes('Senate');
-                                    
-                                    // Extract state and district from division ID
-                                    const divisionParts = office.divisionId.split('/');
-                                    let state = '';
-                                    let district = '';
-                                    
-                                    divisionParts.forEach(part => {
-                                        if (part.startsWith('state:')) {
-                                            state = part.replace('state:', '').toUpperCase();
-                                        }
-                                        if (part.startsWith('cd:')) {
-                                            district = part.replace('cd:', '');
-                                        }
-                                    });
-                                    
-                                    representatives.push({
-                                        name: official.name,
-                                        office: isSenate ? 'Senator' : 'Representative',
-                                        party: official.party || 'Unknown',
-                                        state: state,
-                                        district: district || 'At-Large',
-                                        phone: official.phones?.[0] || '(202) 225-0000',
-                                        website: official.urls?.[0],
-                                        photo: official.photoUrl,
-                                        address: official.address?.[0] ? formatAddress(official.address[0]) : null,
-                                        email: official.emails?.[0],
-                                        socialMedia: {
-                                            twitter: official.channels?.find(c => c.type === 'Twitter')?.id,
-                                            facebook: official.channels?.find(c => c.type === 'Facebook')?.id,
-                                            youtube: official.channels?.find(c => c.type === 'YouTube')?.id
-                                        }
-                                    });
-                                });
-                            }
-                        });
-                        console.log('Found', representatives.length, 'representatives from Civic API');
-                    }
-                } else {
-                    const errorText = await civicResponse.text();
-                    console.error('Civic API error:', civicResponse.status, errorText);
-                }
-            } catch (civicError) {
-                console.error('Error calling Civic API:', civicError);
+                const errorData = JSON.parse(responseText);
+                return res.json({
+                    error: true,
+                    message: `Google Civic API Error: ${errorData.error?.message || 'Unknown error'}`,
+                    errorCode: errorData.error?.code,
+                    errorDetails: errorData.error?.errors,
+                    representatives: []
+                });
+            } catch (e) {
+                return res.json({
+                    error: true,
+                    message: `Google Civic API Error: ${civicResponse.status} ${civicResponse.statusText}`,
+                    representatives: []
+                });
             }
         }
         
-        // Fallback: Use TheUnitedStates.io data with basic state matching
-        if (representatives.length === 0) {
-            console.log('Falling back to TheUnitedStates.io data');
-            
-            // Try to extract state from address - look for state abbreviation or ZIP
-            const stateRegex = /\b(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\b/i;
-            const stateMatch = address.toUpperCase().match(stateRegex);
-            const state = stateMatch ? stateMatch[1] : null;
-            
-            console.log('Extracted state:', state);
-            
-            if (state) {
-                const legislatorsUrl = 'https://unitedstates.github.io/congress-legislators/legislators-current.json';
-                const legislatorsResponse = await fetch(legislatorsUrl);
-                
-                if (legislatorsResponse.ok) {
-                    const legislators = await legislatorsResponse.json();
+        const civicData = JSON.parse(responseText);
+        console.log('Civic API Success! Found:', civicData.offices?.length || 0, 'offices');
+        
+        // Process the response
+        if (civicData.offices && civicData.officials) {
+            civicData.offices.forEach(office => {
+                // Only process federal legislators
+                const officeName = office.name.toLowerCase();
+                if ((officeName.includes('representative') || officeName.includes('senator')) &&
+                    (officeName.includes('united states') || officeName.includes('u.s.'))) {
                     
-                    // Find all legislators from this state
-                    const stateLegislators = legislators.filter(l => {
-                        const currentTerm = l.terms[l.terms.length - 1];
-                        return currentTerm.state === state;
-                    });
-                    
-                    console.log(`Found ${stateLegislators.length} legislators from ${state}`);
-                    
-                    // Add senators first
-                    const senators = stateLegislators.filter(l => 
-                        l.terms[l.terms.length - 1].type === 'sen'
-                    ).slice(0, 2);
-                    
-                    senators.forEach(sen => {
-                        const term = sen.terms[sen.terms.length - 1];
+                    office.officialIndices?.forEach(idx => {
+                        const official = civicData.officials[idx];
+                        
+                        // Extract state and district
+                        let state = '';
+                        let district = '';
+                        
+                        // Parse division ID (e.g., "ocd-division/country:us/state:ca/cd:2")
+                        const divisionParts = office.divisionId.split('/');
+                        divisionParts.forEach(part => {
+                            if (part.startsWith('state:')) {
+                                state = part.replace('state:', '').toUpperCase();
+                            }
+                            if (part.startsWith('cd:')) {
+                                district = part.replace('cd:', '');
+                            }
+                        });
+                        
                         representatives.push({
-                            name: sen.name.official_full || `${sen.name.first} ${sen.name.last}`,
-                            office: 'Senator',
-                            party: term.party,
-                            state: term.state,
-                            district: null,
-                            phone: term.phone || '(202) 224-0000',
-                            website: term.url,
-                            address: term.address,
+                            name: official.name,
+                            office: office.name.includes('Senator') ? 'Senator' : 'Representative',
+                            party: official.party || 'Unknown',
+                            state: state,
+                            district: district || null,
+                            phone: official.phones?.[0] || '(202) 225-0000',
+                            website: official.urls?.[0],
+                            photo: official.photoUrl,
+                            address: official.address?.[0] ? formatAddress(official.address[0]) : null,
+                            channels: official.channels,
+                            emails: official.emails,
                             socialMedia: {
-                                twitter: sen.id?.twitter,
-                                facebook: sen.id?.facebook,
-                                youtube: sen.id?.youtube
+                                twitter: official.channels?.find(c => c.type === 'Twitter')?.id,
+                                facebook: official.channels?.find(c => c.type === 'Facebook')?.id,
+                                youtube: official.channels?.find(c => c.type === 'YouTube')?.id
                             }
                         });
                     });
-                    
-                    // For CA addresses, try to pick a better representative based on city
-                    if (state === 'CA') {
-                        const addressLower = address.toLowerCase();
-                        let houseRep = null;
-                        
-                        // Marin County cities → District 2 (Jared Huffman)
-                        if (addressLower.includes('san rafael') || addressLower.includes('marin') || 
-                            addressLower.includes('novato') || addressLower.includes('mill valley') ||
-                            addressLower.includes('sausalito') || addressLower.includes('larkspur') ||
-                            addressLower.includes('corte madera') || addressLower.includes('tiburon') ||
-                            addressLower.includes('fairfax') || addressLower.includes('san anselmo')) {
-                            console.log('Detected Marin County address, looking for District 2');
-                            houseRep = stateLegislators.find(l => {
-                                const term = l.terms[l.terms.length - 1];
-                                return term.type === 'rep' && term.district === '2';
-                            });
-                            if (!houseRep) {
-                                console.log('District 2 not found, trying District 4 as backup');
-                                // Try District 4 as backup (Mike Thompson - covers some North Bay)
-                                houseRep = stateLegislators.find(l => {
-                                    const term = l.terms[l.terms.length - 1];
-                                    return term.type === 'rep' && term.district === '4';
-                                });
-                            }
-                        } else if (addressLower.includes('san francisco')) {
-                            // District 11 (Nancy Pelosi)
-                            houseRep = stateLegislators.find(l => {
-                                const term = l.terms[l.terms.length - 1];
-                                return term.type === 'rep' && term.district === '11';
-                            });
-                        } else if (addressLower.includes('oakland') || addressLower.includes('berkeley')) {
-                            // District 12 (Barbara Lee)
-                            houseRep = stateLegislators.find(l => {
-                                const term = l.terms[l.terms.length - 1];
-                                return term.type === 'rep' && term.district === '12';
-                            });
-                        }
-                        
-                        // Log what we found
-                        if (houseRep) {
-                            const term = houseRep.terms[houseRep.terms.length - 1];
-                            console.log(`Selected representative: ${houseRep.name.first} ${houseRep.name.last} (District ${term.district})`);
-                        } else {
-                            console.log('No specific district match, will use first Northern CA rep');
-                        }
-                        
-                        // If no specific match, find any Northern CA rep (districts 1-15 are Northern CA)
-                        if (!houseRep) {
-                            const northernCalReps = stateLegislators.filter(l => {
-                                const term = l.terms[l.terms.length - 1];
-                                const districtNum = parseInt(term.district);
-                                return term.type === 'rep' && districtNum >= 1 && districtNum <= 15;
-                            }).sort((a, b) => {
-                                // Sort by district number
-                                const distA = parseInt(a.terms[a.terms.length - 1].district);
-                                const distB = parseInt(b.terms[b.terms.length - 1].district);
-                                return distA - distB;
-                            });
-                            
-                            console.log(`Found ${northernCalReps.length} Northern CA representatives`);
-                            houseRep = northernCalReps[0];
-                        }
-                        
-                        if (houseRep) {
-                            const term = houseRep.terms[houseRep.terms.length - 1];
-                            representatives.push({
-                                name: houseRep.name.official_full || `${houseRep.name.first} ${houseRep.name.last}`,
-                                office: 'Representative',
-                                party: term.party,
-                                state: term.state,
-                                district: term.district || 'Unknown',
-                                phone: term.phone || '(202) 225-0000',
-                                website: term.url,
-                                address: term.address,
-                                socialMedia: {
-                                    twitter: houseRep.id?.twitter,
-                                    facebook: houseRep.id?.facebook,
-                                    youtube: houseRep.id?.youtube
-                                },
-                                note: 'Note: Without precise address lookup, district assignment is approximate based on city.'
-                            });
-                        }
-                    } else {
-                        // For other states, just pick the first representative
-                        const houseRep = stateLegislators.find(l => 
-                            l.terms[l.terms.length - 1].type === 'rep'
-                        );
-                        
-                        if (houseRep) {
-                            const term = houseRep.terms[houseRep.terms.length - 1];
-                            representatives.push({
-                                name: houseRep.name.official_full || `${houseRep.name.first} ${houseRep.name.last}`,
-                                office: 'Representative',
-                                party: term.party,
-                                state: term.state,
-                                district: term.district || 'Unknown',
-                                phone: term.phone || '(202) 225-0000',
-                                website: term.url,
-                                address: term.address,
-                                socialMedia: {
-                                    twitter: houseRep.id?.twitter,
-                                    facebook: houseRep.id?.facebook,
-                                    youtube: houseRep.id?.youtube
-                                }
-                            });
-                        }
-                    }
                 }
-            } else {
-                console.log('Could not extract state from address');
-            }
+            });
+            
+            console.log(`Processed ${representatives.length} representatives`);
+            
+            // Sort: Senators first, then Representative
+            representatives.sort((a, b) => {
+                if (a.office === 'Senator' && b.office !== 'Senator') return -1;
+                if (a.office !== 'Senator' && b.office === 'Senator') return 1;
+                return 0;
+            });
         }
         
         res.json({
             representatives: representatives,
-            addressProvided: address,
-            method: process.env.GOOGLE_CIVIC_API_KEY ? 'Google Civic API' : 'State-based lookup',
-            accuracy: process.env.GOOGLE_CIVIC_API_KEY ? 'Exact' : 'Approximate - Enable Google Civic API for precise district matching'
+            address: address,
+            normalizedAddress: civicData.normalizedInput,
+            method: 'Google Civic API - Exact Match',
+            accuracy: 'Perfect'
         });
         
     } catch (error) {
-        console.error('Error finding representatives:', error);
-        res.status(500).json({
+        console.error('Fatal error:', error);
+        res.json({
             error: true,
-            message: 'Unable to find representatives. Please check your address and try again.',
-            details: error.message
+            message: `System error: ${error.message}`,
+            representatives: []
         });
     }
 });
 
-// Get voting records for a specific representative
+// Get voting records
 app.get('/api/voting-record/:name', async (req, res) => {
     const repName = req.params.name;
-    const cacheKey = `votes_${repName}`;
-    const cached = getCached(cacheKey);
-    
-    if (cached) {
-        return res.json(cached);
-    }
     
     try {
         const votes = [];
         
-        // If we have Congress API key, get real voting data
         if (process.env.CONGRESS_API_KEY) {
             const billsUrl = `https://api.data.gov/congress/v3/bill/118?api_key=${process.env.CONGRESS_API_KEY}&limit=10&sort=updateDate+desc`;
             const billsResponse = await fetch(billsUrl);
@@ -316,27 +207,16 @@ app.get('/api/voting-record/:name', async (req, res) => {
             }
         }
         
-        // Add sample data if no real data
         if (votes.length === 0) {
-            votes.push(
-                {
-                    bill: "H.R. 1234 - Infrastructure Investment Act",
-                    date: "2024-03-15",
-                    vote: "Yes",
-                    description: "A bill to provide funding for national infrastructure improvements"
-                },
-                {
-                    bill: "H.R. 5678 - Healthcare Reform Act",
-                    date: "2024-02-28",
-                    vote: "No",
-                    description: "A bill to reform healthcare insurance regulations"
-                }
-            );
+            votes.push({
+                bill: "Voting record data requires Congress.gov API key",
+                date: new Date().toISOString().split('T')[0],
+                vote: "N/A",
+                description: "Add CONGRESS_API_KEY to environment variables for real data"
+            });
         }
         
-        const result = { votes };
-        setCache(cacheKey, result);
-        res.json(result);
+        res.json({ votes });
         
     } catch (error) {
         console.error('Error fetching voting records:', error);
@@ -347,12 +227,6 @@ app.get('/api/voting-record/:name', async (req, res) => {
 // Get campaign finance data
 app.get('/api/campaign-finance/:name', async (req, res) => {
     const repName = req.params.name;
-    const cacheKey = `finance_${repName}`;
-    const cached = getCached(cacheKey);
-    
-    if (cached) {
-        return res.json(cached);
-    }
     
     let fundingData = {
         totalRaised: 'N/A',
@@ -420,7 +294,6 @@ app.get('/api/campaign-finance/:name', async (req, res) => {
             }
         }
         
-        setCache(cacheKey, fundingData);
         res.json(fundingData);
         
     } catch (error) {
@@ -432,7 +305,14 @@ app.get('/api/campaign-finance/:name', async (req, res) => {
 // Helper function to format address
 function formatAddress(addr) {
     if (!addr) return null;
-    return `${addr.line1 || ''}${addr.line2 ? ' ' + addr.line2 : ''}${addr.line3 ? ' ' + addr.line3 : ''}, ${addr.city || ''}, ${addr.state || ''} ${addr.zip || ''}`.trim();
+    const parts = [];
+    if (addr.line1) parts.push(addr.line1);
+    if (addr.line2) parts.push(addr.line2);
+    if (addr.line3) parts.push(addr.line3);
+    if (addr.city && addr.state && addr.zip) {
+        parts.push(`${addr.city}, ${addr.state} ${addr.zip}`);
+    }
+    return parts.join(', ');
 }
 
 // Health check
@@ -440,11 +320,11 @@ app.get('/health', (req, res) => {
     res.json({ 
         status: 'OK',
         apis: {
-            congress: process.env.CONGRESS_API_KEY ? 'Configured' : 'Not configured',
-            fec: process.env.FEC_API_KEY ? 'Configured' : 'Not configured',
-            civic: process.env.GOOGLE_CIVIC_API_KEY ? 'Configured' : 'Not configured - Using fallback'
+            googleCivic: process.env.GOOGLE_CIVIC_API_KEY ? 'Configured' : 'MISSING - Add GOOGLE_CIVIC_API_KEY',
+            congress: process.env.CONGRESS_API_KEY ? 'Configured' : 'Missing',
+            fec: process.env.FEC_API_KEY ? 'Configured' : 'Missing'
         },
-        cache_size: cache.size
+        timestamp: new Date().toISOString()
     });
 });
 
@@ -456,8 +336,13 @@ app.get('/', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Running on port ${PORT}`);
-    console.log('APIs configured:');
-    console.log(`- Google Civic: ${process.env.GOOGLE_CIVIC_API_KEY ? 'Yes' : 'No (using state-based fallback)'}`);
-    console.log(`- Congress.gov: ${process.env.CONGRESS_API_KEY ? 'Yes' : 'No'}`);
-    console.log(`- FEC: ${process.env.FEC_API_KEY ? 'Yes' : 'No'}`);
+    console.log('API Status:');
+    console.log(`- Google Civic: ${process.env.GOOGLE_CIVIC_API_KEY ? '✓ Configured' : '✗ MISSING'}`);
+    console.log(`- Congress.gov: ${process.env.CONGRESS_API_KEY ? '✓ Configured' : '✗ Missing'}`);
+    console.log(`- FEC: ${process.env.FEC_API_KEY ? '✓ Configured' : '✗ Missing'}`);
+    
+    if (!process.env.GOOGLE_CIVIC_API_KEY) {
+        console.error('\n⚠️  WARNING: Google Civic API key not found!');
+        console.error('   Add GOOGLE_CIVIC_API_KEY to your environment variables');
+    }
 });
