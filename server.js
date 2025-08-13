@@ -17,9 +17,9 @@ app.get('/api/test-civic', async (req, res) => {
         });
     }
     
-    // Test with a known address
+    // Test with a known address - simplified URL
     const testAddress = '1600 Pennsylvania Avenue, Washington, DC 20500';
-    const url = `https://www.googleapis.com/civicinfo/v2/representatives?address=${encodeURIComponent(testAddress)}&key=${apiKey}&levels=country&roles=legislatorLowerBody&roles=legislatorUpperBody`;
+    const url = `https://www.googleapis.com/civicinfo/v2/representatives?address=${encodeURIComponent(testAddress)}&key=${apiKey}`;
     
     try {
         console.log('Testing Civic API with URL:', url.replace(apiKey, 'API_KEY_HIDDEN'));
@@ -71,7 +71,7 @@ app.get('/api/representatives', async (req, res) => {
     }
     
     // Use Google Civic API for perfect accuracy
-    const civicUrl = `https://www.googleapis.com/civicinfo/v2/representatives?address=${encodeURIComponent(address)}&key=${apiKey}&levels=country&roles=legislatorLowerBody&roles=legislatorUpperBody`;
+    const civicUrl = `https://civicinfo.googleapis.com/civicinfo/v2/representatives?address=${encodeURIComponent(address)}&key=${apiKey}&levels=country&roles=legislatorLowerBody&roles=legislatorUpperBody`;
     
     try {
         console.log('Calling Google Civic API...');
@@ -108,12 +108,14 @@ app.get('/api/representatives', async (req, res) => {
         // Process the response
         if (civicData.offices && civicData.officials) {
             civicData.offices.forEach(office => {
-                // Only process federal legislators
+                // Filter for federal legislators only
                 const officeName = office.name.toLowerCase();
-                if ((officeName.includes('representative') || officeName.includes('senator')) &&
-                    (officeName.includes('united states') || officeName.includes('u.s.'))) {
-                    
-                    office.officialIndices?.forEach(idx => {
+                const isFederalLegislator = 
+                    (officeName.includes('united states') || officeName.includes('u.s.')) &&
+                    (officeName.includes('representative') || officeName.includes('senator'));
+                
+                if (isFederalLegislator && office.officialIndices) {
+                    office.officialIndices.forEach(idx => {
                         const official = civicData.officials[idx];
                         
                         // Extract state and district
@@ -131,9 +133,12 @@ app.get('/api/representatives', async (req, res) => {
                             }
                         });
                         
+                        const isHouseRep = officeName.includes('representative');
+                        const isSenator = officeName.includes('senator');
+                        
                         representatives.push({
                             name: official.name,
-                            office: office.name.includes('Senator') ? 'Senator' : 'Representative',
+                            office: isSenator ? 'Senator' : 'Representative',
                             party: official.party || 'Unknown',
                             state: state,
                             district: district || null,
@@ -151,6 +156,7 @@ app.get('/api/representatives', async (req, res) => {
                         });
                     });
                 }
+            });
             });
             
             console.log(`Processed ${representatives.length} representatives`);
