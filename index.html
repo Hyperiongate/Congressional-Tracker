@@ -366,6 +366,11 @@
             
             resultsDiv.innerHTML = `
                 <h2 style="color: white; margin-bottom: 20px; text-align: center;">Your Representatives</h2>
+                ${data.accuracy && data.accuracy.includes('Approximate') ? `
+                    <div style="background: #fff3cd; color: #856404; padding: 15px; border-radius: 10px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
+                        <strong>Note:</strong> District assignment is approximate. For San Rafael/Marin County, your representative is likely Jared Huffman (District 2).
+                    </div>
+                ` : ''}
                 <div class="representatives-grid">
                     ${data.representatives.map((rep, index) => `
                         <div class="rep-card">
@@ -380,6 +385,7 @@
                                     </h3>
                                     <p>${rep.party}</p>
                                     <p>${rep.office === 'Senator' ? rep.state : `${rep.state}-${rep.district}`}</p>
+                                    ${rep.note ? `<p style="font-size: 12px; color: #666; font-style: italic;">${rep.note}</p>` : ''}
                                 </div>
                             </div>
                             
