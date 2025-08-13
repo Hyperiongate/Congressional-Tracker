@@ -40,55 +40,66 @@ app.get('/api/representatives', async (req, res) => {
             const civicUrl = `https://www.googleapis.com/civicinfo/v2/representatives?address=${encodeURIComponent(address)}&key=${process.env.GOOGLE_CIVIC_API_KEY}&levels=country&roles=legislatorLowerBody&roles=legislatorUpperBody`;
             
             console.log('Using Google Civic API for accurate lookup');
-            const civicResponse = await fetch(civicUrl);
             
-            if (civicResponse.ok) {
-                const civicData = await civicResponse.json();
+            try {
+                const civicResponse = await fetch(civicUrl);
+                console.log('Civic API response status:', civicResponse.status);
                 
-                // Process officials from Google Civic API
-                if (civicData.officials && civicData.offices) {
-                    civicData.offices.forEach(office => {
-                        if (office.officialIndices) {
-                            office.officialIndices.forEach(idx => {
-                                const official = civicData.officials[idx];
-                                const isHouse = office.name.includes('Representative') || office.name.includes('House');
-                                const isSenate = office.name.includes('Senator') || office.name.includes('Senate');
-                                
-                                // Extract state and district from division ID
-                                const divisionParts = office.divisionId.split('/');
-                                let state = '';
-                                let district = '';
-                                
-                                divisionParts.forEach(part => {
-                                    if (part.startsWith('state:')) {
-                                        state = part.replace('state:', '').toUpperCase();
-                                    }
-                                    if (part.startsWith('cd:')) {
-                                        district = part.replace('cd:', '');
-                                    }
+                if (civicResponse.ok) {
+                    const civicData = await civicResponse.json();
+                    console.log('Civic API returned data:', civicData.offices?.length || 0, 'offices');
+                    
+                    // Process officials from Google Civic API
+                    if (civicData.officials && civicData.offices) {
+                        civicData.offices.forEach(office => {
+                            if (office.officialIndices) {
+                                office.officialIndices.forEach(idx => {
+                                    const official = civicData.officials[idx];
+                                    const isHouse = office.name.includes('Representative') || office.name.includes('House');
+                                    const isSenate = office.name.includes('Senator') || office.name.includes('Senate');
+                                    
+                                    // Extract state and district from division ID
+                                    const divisionParts = office.divisionId.split('/');
+                                    let state = '';
+                                    let district = '';
+                                    
+                                    divisionParts.forEach(part => {
+                                        if (part.startsWith('state:')) {
+                                            state = part.replace('state:', '').toUpperCase();
+                                        }
+                                        if (part.startsWith('cd:')) {
+                                            district = part.replace('cd:', '');
+                                        }
+                                    });
+                                    
+                                    representatives.push({
+                                        name: official.name,
+                                        office: isSenate ? 'Senator' : 'Representative',
+                                        party: official.party || 'Unknown',
+                                        state: state,
+                                        district: district || 'At-Large',
+                                        phone: official.phones?.[0] || '(202) 225-0000',
+                                        website: official.urls?.[0],
+                                        photo: official.photoUrl,
+                                        address: official.address?.[0] ? formatAddress(official.address[0]) : null,
+                                        email: official.emails?.[0],
+                                        socialMedia: {
+                                            twitter: official.channels?.find(c => c.type === 'Twitter')?.id,
+                                            facebook: official.channels?.find(c => c.type === 'Facebook')?.id,
+                                            youtube: official.channels?.find(c => c.type === 'YouTube')?.id
+                                        }
+                                    });
                                 });
-                                
-                                representatives.push({
-                                    name: official.name,
-                                    office: isSenate ? 'Senator' : 'Representative',
-                                    party: official.party || 'Unknown',
-                                    state: state,
-                                    district: district || 'At-Large',
-                                    phone: official.phones?.[0] || '(202) 225-0000',
-                                    website: official.urls?.[0],
-                                    photo: official.photoUrl,
-                                    address: official.address?.[0] ? formatAddress(official.address[0]) : null,
-                                    email: official.emails?.[0],
-                                    socialMedia: {
-                                        twitter: official.channels?.find(c => c.type === 'Twitter')?.id,
-                                        facebook: official.channels?.find(c => c.type === 'Facebook')?.id,
-                                        youtube: official.channels?.find(c => c.type === 'YouTube')?.id
-                                    }
-                                });
-                            });
-                        }
-                    });
+                            }
+                        });
+                        console.log('Found', representatives.length, 'representatives from Civic API');
+                    }
+                } else {
+                    const errorText = await civicResponse.text();
+                    console.error('Civic API error:', civicResponse.status, errorText);
                 }
+            } catch (civicError) {
+                console.error('Error calling Civic API:', civicError);
             }
         }
         
@@ -96,9 +107,12 @@ app.get('/api/representatives', async (req, res) => {
         if (representatives.length === 0) {
             console.log('Falling back to TheUnitedStates.io data');
             
-            // Try to extract state from address
-            const stateMatch = address.match(/\b([A-Z]{2})\b/);
+            // Try to extract state from address - look for state abbreviation or ZIP
+            const stateRegex = /\b(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\b/i;
+            const stateMatch = address.toUpperCase().match(stateRegex);
             const state = stateMatch ? stateMatch[1] : null;
+            
+            console.log('Extracted state:', state);
             
             if (state) {
                 const legislatorsUrl = 'https://unitedstates.github.io/congress-legislators/legislators-current.json';
@@ -112,6 +126,8 @@ app.get('/api/representatives', async (req, res) => {
                         const currentTerm = l.terms[l.terms.length - 1];
                         return currentTerm.state === state;
                     });
+                    
+                    console.log(`Found ${stateLegislators.length} legislators from ${state}`);
                     
                     // Add senators first
                     const senators = stateLegislators.filter(l => 
@@ -137,30 +153,116 @@ app.get('/api/representatives', async (req, res) => {
                         });
                     });
                     
-                    // Add one representative (without Google Civic API, we can't know the exact district)
-                    const houseRep = stateLegislators.find(l => 
-                        l.terms[l.terms.length - 1].type === 'rep'
-                    );
-                    
-                    if (houseRep) {
-                        const term = houseRep.terms[houseRep.terms.length - 1];
-                        representatives.push({
-                            name: houseRep.name.official_full || `${houseRep.name.first} ${houseRep.name.last}`,
-                            office: 'Representative',
-                            party: term.party,
-                            state: term.state,
-                            district: term.district || 'Unknown',
-                            phone: term.phone || '(202) 225-0000',
-                            website: term.url,
-                            address: term.address,
-                            socialMedia: {
-                                twitter: houseRep.id?.twitter,
-                                facebook: houseRep.id?.facebook,
-                                youtube: houseRep.id?.youtube
+                    // For CA addresses, try to pick a better representative based on city
+                    if (state === 'CA') {
+                        const addressLower = address.toLowerCase();
+                        let houseRep = null;
+                        
+                        // Marin County cities → District 2 (Jared Huffman)
+                        if (addressLower.includes('san rafael') || addressLower.includes('marin') || 
+                            addressLower.includes('novato') || addressLower.includes('mill valley') ||
+                            addressLower.includes('sausalito') || addressLower.includes('larkspur') ||
+                            addressLower.includes('corte madera') || addressLower.includes('tiburon') ||
+                            addressLower.includes('fairfax') || addressLower.includes('san anselmo')) {
+                            console.log('Detected Marin County address, looking for District 2');
+                            houseRep = stateLegislators.find(l => {
+                                const term = l.terms[l.terms.length - 1];
+                                return term.type === 'rep' && term.district === '2';
+                            });
+                            if (!houseRep) {
+                                console.log('District 2 not found, trying District 4 as backup');
+                                // Try District 4 as backup (Mike Thompson - covers some North Bay)
+                                houseRep = stateLegislators.find(l => {
+                                    const term = l.terms[l.terms.length - 1];
+                                    return term.type === 'rep' && term.district === '4';
+                                });
                             }
-                        });
+                        } else if (addressLower.includes('san francisco')) {
+                            // District 11 (Nancy Pelosi)
+                            houseRep = stateLegislators.find(l => {
+                                const term = l.terms[l.terms.length - 1];
+                                return term.type === 'rep' && term.district === '11';
+                            });
+                        } else if (addressLower.includes('oakland') || addressLower.includes('berkeley')) {
+                            // District 12 (Barbara Lee)
+                            houseRep = stateLegislators.find(l => {
+                                const term = l.terms[l.terms.length - 1];
+                                return term.type === 'rep' && term.district === '12';
+                            });
+                        }
+                        
+                        // Log what we found
+                        if (houseRep) {
+                            const term = houseRep.terms[houseRep.terms.length - 1];
+                            console.log(`Selected representative: ${houseRep.name.first} ${houseRep.name.last} (District ${term.district})`);
+                        } else {
+                            console.log('No specific district match, will use first Northern CA rep');
+                        }
+                        
+                        // If no specific match, find any Northern CA rep (districts 1-15 are Northern CA)
+                        if (!houseRep) {
+                            const northernCalReps = stateLegislators.filter(l => {
+                                const term = l.terms[l.terms.length - 1];
+                                const districtNum = parseInt(term.district);
+                                return term.type === 'rep' && districtNum >= 1 && districtNum <= 15;
+                            }).sort((a, b) => {
+                                // Sort by district number
+                                const distA = parseInt(a.terms[a.terms.length - 1].district);
+                                const distB = parseInt(b.terms[b.terms.length - 1].district);
+                                return distA - distB;
+                            });
+                            
+                            console.log(`Found ${northernCalReps.length} Northern CA representatives`);
+                            houseRep = northernCalReps[0];
+                        }
+                        
+                        if (houseRep) {
+                            const term = houseRep.terms[houseRep.terms.length - 1];
+                            representatives.push({
+                                name: houseRep.name.official_full || `${houseRep.name.first} ${houseRep.name.last}`,
+                                office: 'Representative',
+                                party: term.party,
+                                state: term.state,
+                                district: term.district || 'Unknown',
+                                phone: term.phone || '(202) 225-0000',
+                                website: term.url,
+                                address: term.address,
+                                socialMedia: {
+                                    twitter: houseRep.id?.twitter,
+                                    facebook: houseRep.id?.facebook,
+                                    youtube: houseRep.id?.youtube
+                                },
+                                note: 'Note: Without precise address lookup, district assignment is approximate based on city.'
+                            });
+                        }
+                    } else {
+                        // For other states, just pick the first representative
+                        const houseRep = stateLegislators.find(l => 
+                            l.terms[l.terms.length - 1].type === 'rep'
+                        );
+                        
+                        if (houseRep) {
+                            const term = houseRep.terms[houseRep.terms.length - 1];
+                            representatives.push({
+                                name: houseRep.name.official_full || `${houseRep.name.first} ${houseRep.name.last}`,
+                                office: 'Representative',
+                                party: term.party,
+                                state: term.state,
+                                district: term.district || 'Unknown',
+                                phone: term.phone || '(202) 225-0000',
+                                website: term.url,
+                                address: term.address,
+                                socialMedia: {
+                                    twitter: houseRep.id?.twitter,
+                                    facebook: houseRep.id?.facebook,
+                                    youtube: houseRep.id?.youtube
+                                }
+                            });
+                        }
                     }
                 }
+            } else {
+                console.log('Could not extract state from address');
             }
         }
         
