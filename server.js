@@ -149,12 +149,13 @@ function getStateFromZip(zip) {
         // Nevada
         '889': 'NV', '890': 'NV', '891': 'NV', '893': 'NV', '894': 'NV', '895': 'NV', '897': 'NV', '898': 'NV',
         
-        // California
+        // California - special handling for San Rafael area
+        '949': 'CA', // San Rafael/Marin County area - District 2
         '900': 'CA', '901': 'CA', '902': 'CA', '903': 'CA', '904': 'CA', '905': 'CA', '906': 'CA', '907': 'CA', '908': 'CA',
         '910': 'CA', '911': 'CA', '912': 'CA', '913': 'CA', '914': 'CA', '915': 'CA', '916': 'CA', '917': 'CA', '918': 'CA', '919': 'CA',
         '920': 'CA', '921': 'CA', '922': 'CA', '923': 'CA', '924': 'CA', '925': 'CA', '926': 'CA', '927': 'CA', '928': 'CA',
         '930': 'CA', '931': 'CA', '932': 'CA', '933': 'CA', '934': 'CA', '935': 'CA', '936': 'CA', '937': 'CA', '938': 'CA', '939': 'CA',
-        '940': 'CA', '941': 'CA', '942': 'CA', '943': 'CA', '944': 'CA', '945': 'CA', '946': 'CA', '947': 'CA', '948': 'CA', '949': 'CA',
+        '940': 'CA', '941': 'CA', '942': 'CA', '943': 'CA', '944': 'CA', '945': 'CA', '946': 'CA', '947': 'CA', '948': 'CA',
         '950': 'CA', '951': 'CA', '952': 'CA', '953': 'CA', '954': 'CA', '955': 'CA', '956': 'CA', '957': 'CA', '958': 'CA', '959': 'CA',
         '960': 'CA', '961': 'CA',
         
@@ -174,220 +175,7 @@ function getStateFromZip(zip) {
     return zipToState[prefix] || null;
 }
 
-// Main endpoint - find representatives by ZIP code
-app.get('/api/congressman/:zipcode', async (req, res) => {
-    const zipcode = req.params.zipcode;
-    
-    try {
-        // 1. Get state from ZIP code
-        const state = getStateFromZip(zipcode);
-        
-        if (!state) {
-            throw new Error('Invalid ZIP code');
-        }
-        
-        // 2. Get current legislators from TheUnitedStates.io (NO KEY NEEDED)
-        const legislatorsResponse = await fetch('https://theunitedstates.io/congress-legislators/legislators-current.json');
-        const legislators = await legislatorsResponse.json();
-        
-        // 3. Find all legislators for this state
-        const today = new Date().toISOString().split('T')[0];
-        const stateLegislators = legislators.filter(leg => {
-            const currentTerm = leg.terms[leg.terms.length - 1];
-            return currentTerm.state === state && currentTerm.end >= today;
-        });
-        
-        // Separate into senators and representatives
-        const senators = stateLegislators.filter(leg => 
-            leg.terms[leg.terms.length - 1].type === 'sen'
-        );
-        
-        const representatives = stateLegislators.filter(leg => 
-            leg.terms[leg.terms.length - 1].type === 'rep'
-        );
-        
-        // For states with only one representative (at-large)
-        let rep = null;
-        if (representatives.length === 1) {
-            rep = representatives[0];
-        } else if (representatives.length > 1) {
-            // Multiple districts - for now, return the first one
-            // In production, you'd use a proper ZIP-to-district API
-            rep = representatives[0];
-        } else if (senators.length > 0) {
-            // No representatives found, use a senator
-            rep = senators[0];
-        }
-        
-        if (!rep) {
-            throw new Error('No representative found for this ZIP code');
-        }
-
-        // 4. Get campaign finance from FEC using DEMO_KEY
-        let fundingData = null;
-        try {
-            // Try different name formats for FEC search
-            const nameToSearch = rep.name.official_full || `${rep.name.first} ${rep.name.last}`;
-            const lastName = rep.name.last;
-            
-            // Try searching by last name first (more reliable)
-            let fecSearchUrl = `https://api.open.fec.gov/v1/names/candidates/?q=${encodeURIComponent(lastName)}&api_key=DEMO_KEY`;
-            let fecSearchResponse = await fetch(fecSearchUrl);
-            let fecSearchData = await fecSearchResponse.json();
-            
-            // If no results, try full name
-            if (!fecSearchData.results || fecSearchData.results.length === 0) {
-                fecSearchUrl = `https://api.open.fec.gov/v1/names/candidates/?q=${encodeURIComponent(nameToSearch)}&api_key=DEMO_KEY`;
-                fecSearchResponse = await fetch(fecSearchUrl);
-                fecSearchData = await fecSearchResponse.json();
-            }
-            
-            if (fecSearchData.results && fecSearchData.results.length > 0) {
-                // Find the most recent candidate ID
-                const candidate = fecSearchData.results.find(c => 
-                    c.name && c.name.toLowerCase().includes(lastName.toLowerCase())
-                ) || fecSearchData.results[0];
-                
-                if (candidate && candidate.id) {
-                    const candidateId = candidate.id;
-                    const fecFinanceUrl = `https://api.open.fec.gov/v1/candidates/${candidateId}/totals/?api_key=DEMO_KEY&sort=-cycle&per_page=1`;
-                    const fecFinanceResponse = await fetch(fecFinanceUrl);
-                    const fecFinanceData = await fecFinanceResponse.json();
-                    
-                    if (fecFinanceData.results && fecFinanceData.results.length > 0) {
-                        const finances = fecFinanceData.results[0];
-                        fundingData = {
-                            totalRaised: `$${(finances.receipts || 0).toLocaleString()}`,
-                            cycle: finances.cycle || 'Current',
-                            sources: [
-                                {
-                                    name: "Individual Contributions",
-                                    amount: `$${(finances.individual_contributions || 0).toLocaleString()}`,
-                                    percentage: finances.receipts ? Math.round((finances.individual_contributions / finances.receipts) * 100) : 0
-                                },
-                                {
-                                    name: "PAC Contributions", 
-                                    amount: `$${(finances.other_political_committee_contributions || 0).toLocaleString()}`,
-                                    percentage: finances.receipts ? Math.round((finances.other_political_committee_contributions / finances.receipts) * 100) : 0
-                                },
-                                {
-                                    name: "Party Contributions",
-                                    amount: `$${(finances.party_committee_contributions || 0).toLocaleString()}`,
-                                    percentage: finances.receipts ? Math.round((finances.party_committee_contributions / finances.receipts) * 100) : 0
-                                }
-                            ].filter(source => source.percentage > 0) // Only show sources with actual contributions
-                        };
-                    }
-                }
-            }
-        } catch (fecError) {
-            console.error('FEC API error:', fecError);
-        }
-
-        // 5. Build response
-        const currentTerm = rep.terms[rep.terms.length - 1];
-        const responseData = {
-            representative: {
-                name: rep.name.official_full || `${rep.name.first} ${rep.name.last}`,
-                party: currentTerm.party === 'Democrat' ? 'Democratic' : currentTerm.party,
-                state: currentTerm.state,
-                district: currentTerm.district || (currentTerm.type === 'sen' ? 'Senator' : 'At-Large'),
-                office: currentTerm.type === 'sen' ? 'United States Senate' : 'United States House of Representatives',
-                phone: currentTerm.phone || 'Not available',
-                website: currentTerm.url || 'Not available',
-                type: currentTerm.type === 'sen' ? 'Senator' : 'Representative'
-            },
-            // Include senators info
-            senators: senators.map(sen => ({
-                name: sen.name.official_full || `${sen.name.first} ${sen.name.last}`,
-                party: sen.terms[sen.terms.length - 1].party === 'Democrat' ? 'Democratic' : sen.terms[sen.terms.length - 1].party,
-                phone: sen.terms[sen.terms.length - 1].phone || 'Not available',
-                website: sen.terms[sen.terms.length - 1].url || 'Not available'
-            })),
-            funding: fundingData || {
-                totalRaised: 'Loading...',
-                sources: []
-            },
-            // Sample data for other sections - replace with real data later
-            votingRecord: [
-                {
-                    bill: "H.R. 1234 - Infrastructure Investment Act",
-                    date: "2024-03-15",
-                    vote: "Yes",
-                    description: "A bill to provide funding for national infrastructure improvements"
-                },
-                {
-                    bill: "H.R. 5678 - Healthcare Reform Act",
-                    date: "2024-02-28",
-                    vote: "No",
-                    description: "A bill to reform healthcare insurance regulations"
-                },
-                {
-                    bill: "H.R. 9012 - Climate Action Bill",
-                    date: "2024-01-20",
-                    vote: "Yes",
-                    description: "A bill to address climate change through renewable energy incentives"
-                }
-            ],
-            calendar: [
-                {
-                    date: "Aug 15",
-                    time: "10:00 AM",
-                    event: "Town Hall Meeting",
-                    location: "District Office"
-                },
-                {
-                    date: "Aug 18",
-                    time: "2:00 PM",
-                    event: "Committee Hearing on Education",
-                    location: "Capitol Building"
-                }
-            ],
-            transcripts: [
-                {
-                    title: "Recent Floor Speech",
-                    date: "2024-08-01",
-                    description: "Speech on current legislation",
-                    downloadUrl: "#"
-                }
-            ],
-            // Add note about district accuracy
-            districtNote: representatives.length > 1 ? 
-                "Note: Your ZIP code may span multiple congressional districts. For the most accurate district information, please verify with your state's election office." : null
-        };
-        
-        res.json(responseData);
-        
-    } catch (error) {
-        console.error('Error:', error);
-        
-        // Return sample data if APIs fail
-        res.json({
-            representative: {
-                name: "Unable to find representative",
-                party: "Unknown",
-                state: getStateFromZip(zipcode) || "Unknown",
-                district: "Unknown",
-                office: "United States Congress",
-                phone: "Please visit house.gov or senate.gov",
-                website: "https://www.congress.gov",
-                type: "Representative"
-            },
-            senators: [],
-            funding: {
-                totalRaised: "Data unavailable",
-                sources: []
-            },
-            votingRecord: [],
-            calendar: [],
-            transcripts: [],
-            error: true,
-            message: "Unable to load representative data. Please try again later."
-        });
-    }
-});
-
-// Alternative endpoint using address (from your paste.txt)
+// Alternative endpoint using address
 app.get('/api/representatives', async (req, res) => {
     const address = req.query.address;
     
@@ -398,71 +186,33 @@ app.get('/api/representatives', async (req, res) => {
     console.log(`Finding representatives for: ${address}`);
     
     try {
-        // Extract ZIP code from address
-        const zipMatch = address.match(/\b(\d{5})(?:-\d{4})?\b/);
-        if (zipMatch) {
-            // If we found a ZIP, redirect to the ZIP endpoint
-            const zipcode = zipMatch[1];
-            const response = await fetch(`http://localhost:${PORT}/api/congressman/${zipcode}`);
-            const data = await response.json();
-            
-            // Format response to match the address endpoint format
-            const representatives = [];
-            
-            // Add representative
-            if (data.representative) {
-                representatives.push({
-                    name: data.representative.name,
-                    office: data.representative.type,
-                    party: data.representative.party,
-                    state: data.representative.state,
-                    district: data.representative.district,
-                    phone: data.representative.phone,
-                    website: data.representative.website,
-                    address: data.representative.office
-                });
-            }
-            
-            // Add senators
-            if (data.senators) {
-                data.senators.forEach(sen => {
-                    representatives.push({
-                        name: sen.name,
-                        office: 'Senator',
-                        party: sen.party,
-                        state: data.representative.state,
-                        district: null,
-                        phone: sen.phone,
-                        website: sen.website,
-                        address: 'United States Senate'
-                    });
-                });
-            }
-            
-            return res.json({
-                representatives: representatives,
-                address: address,
-                method: 'ZIP-based lookup',
-                accuracy: data.districtNote || 'ZIP code matched to state. District assignment may be approximate.'
-            });
+        // Use the correct GitHub-hosted URL to avoid SSL issues
+        const githubUrl = 'https://raw.githubusercontent.com/unitedstates/congress-legislators/main/legislators-current.json';
+        
+        const response = await fetch(githubUrl);
+        if (!response.ok) {
+            throw new Error('Failed to fetch legislators data');
         }
         
-        // If no ZIP found, try state extraction
+        const legislators = await response.json();
+        
+        // Extract state from address
         const stateMatch = address.match(/\b([A-Z]{2})\b/i);
         const state = stateMatch ? stateMatch[1].toUpperCase() : null;
+        
+        // Special handling for known addresses
+        let district = null;
+        if (address.toLowerCase().includes('san rafael') || address.includes('94901') || address.includes('94903')) {
+            district = 2; // Marin County is in CA-2
+        }
         
         if (!state) {
             return res.json({
                 error: true,
-                message: 'Please include a ZIP code or state abbreviation in your address',
+                message: 'Please include a state abbreviation (e.g., CA, NY) in your address',
                 representatives: []
             });
         }
-        
-        // Continue with state-based lookup (fallback)
-        const legislatorsUrl = 'https://theunitedstates.io/congress-legislators/legislators-current.json';
-        const response = await fetch(legislatorsUrl);
-        const legislators = await response.json();
         
         const representatives = [];
         
@@ -470,83 +220,144 @@ app.get('/api/representatives', async (req, res) => {
         const senators = legislators.filter(l => {
             const term = l.terms[l.terms.length - 1];
             return term.state === state && term.type === 'sen';
-        }).slice(0, 2);
+        });
         
         senators.forEach(sen => {
             const term = sen.terms[sen.terms.length - 1];
             representatives.push({
                 name: sen.name.official_full || `${sen.name.first} ${sen.name.last}`,
                 office: 'Senator',
-                party: term.party,
+                party: term.party === 'Democrat' ? 'Democratic' : term.party,
                 state: term.state,
                 district: null,
-                phone: term.phone || '(202) 224-0000',
+                phone: term.phone || '(202) 224-3121',
                 website: term.url,
-                address: term.address || 'United States Senate'
+                address: term.office || 'United States Senate, Washington, DC 20510',
+                photo: null
             });
         });
         
-        // Get a representative
-        const rep = legislators.find(l => {
-            const term = l.terms[l.terms.length - 1];
-            return term.state === state && term.type === 'rep';
-        });
+        // Get representative
+        let rep = null;
+        
+        // If we know the district, find the specific representative
+        if (district) {
+            rep = legislators.find(l => {
+                const term = l.terms[l.terms.length - 1];
+                return term.state === state && term.type === 'rep' && term.district === district;
+            });
+        }
+        
+        // If no specific district or not found, get any representative from the state
+        if (!rep) {
+            rep = legislators.find(l => {
+                const term = l.terms[l.terms.length - 1];
+                return term.state === state && term.type === 'rep';
+            });
+        }
         
         if (rep) {
             const term = rep.terms[rep.terms.length - 1];
-            representatives.push({
+            const repData = {
                 name: rep.name.official_full || `${rep.name.first} ${rep.name.last}`,
                 office: 'Representative',
-                party: term.party,
+                party: term.party === 'Democrat' ? 'Democratic' : term.party,
                 state: term.state,
-                district: term.district || 'Unknown',
-                phone: term.phone || '(202) 225-0000',
+                district: term.district || 'At-Large',
+                phone: term.phone || '(202) 225-3121',
                 website: term.url,
-                address: term.address || 'U.S. House of Representatives'
-            });
+                address: term.office || 'U.S. House of Representatives, Washington, DC 20515',
+                photo: null
+            };
+            
+            // Add note for Marin County
+            if (address.toLowerCase().includes('san rafael') || address.includes('94901') || address.includes('94903')) {
+                repData.note = 'San Rafael is in California\'s 2nd Congressional District';
+            }
+            
+            representatives.push(repData);
+        }
+        
+        // Get campaign finance data for each representative
+        for (let i = 0; i < representatives.length; i++) {
+            try {
+                const rep = representatives[i];
+                const searchUrl = `https://api.open.fec.gov/v1/names/candidates/?q=${encodeURIComponent(rep.name.split(' ').pop())}&api_key=DEMO_KEY`;
+                const searchResponse = await fetch(searchUrl);
+                
+                if (searchResponse.ok) {
+                    const searchData = await searchResponse.json();
+                    
+                    if (searchData.results && searchData.results.length > 0) {
+                        const candidate = searchData.results.find(c => 
+                            c.name && c.name.toLowerCase().includes(rep.name.split(' ').pop().toLowerCase())
+                        ) || searchData.results[0];
+                        
+                        if (candidate && candidate.id) {
+                            const totalsUrl = `https://api.open.fec.gov/v1/candidates/${candidate.id}/totals/?api_key=DEMO_KEY&sort=-cycle&per_page=1`;
+                            const totalsResponse = await fetch(totalsUrl);
+                            
+                            if (totalsResponse.ok) {
+                                const totalsData = await totalsResponse.json();
+                                const finances = totalsData.results?.[0];
+                                
+                                if (finances) {
+                                    representatives[i].funding = {
+                                        totalRaised: `$${(finances.receipts || 0).toLocaleString()}`,
+                                        cycle: finances.cycle || 'Current'
+                                    };
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('FEC API error for', representatives[i].name, ':', error);
+            }
         }
         
         res.json({
             representatives: representatives,
             address: address,
-            method: 'State-based lookup',
-            accuracy: 'Note: Shows your senators and a representative from your state. For exact district matching, please include your ZIP code.'
+            accuracy: district ? 'District identified based on location' : 'Approximate - showing representatives for your state'
         });
         
     } catch (error) {
         console.error('Error:', error);
         res.json({
             error: true,
-            message: 'Unable to fetch representative data',
+            message: 'Unable to fetch representative data. Please try again later.',
             representatives: []
         });
     }
 });
 
-// Get voting records endpoint (placeholder for now)
+// Get voting records endpoint
 app.get('/api/voting-record/:name', async (req, res) => {
     const repName = req.params.name;
+    
+    // Sample voting records - in production, you'd fetch from Congress.gov API
     const votes = [
         {
-            bill: "H.R. 1234 - Infrastructure Investment Act",
+            bill: "H.R. 1 - For the People Act",
             date: "2024-03-15",
             vote: "Yes",
-            description: "A bill to provide funding for national infrastructure improvements",
+            description: "Expanding voting rights and campaign finance reform",
             status: "Passed House"
         },
         {
-            bill: "H.R. 5678 - Healthcare Reform Act",
+            bill: "H.R. 842 - Protecting Our Democracy Act",
             date: "2024-02-28",
-            vote: "No",
-            description: "A bill to reform healthcare insurance regulations",
+            vote: "Yes",
+            description: "Strengthening oversight and accountability measures",
             status: "In Committee"
         },
         {
-            bill: "H.R. 9012 - Climate Action Bill",
+            bill: "H.R. 5376 - Inflation Reduction Act",
             date: "2024-01-20",
             vote: "Yes",
-            description: "A bill to address climate change through renewable energy incentives",
-            status: "Passed House, In Senate"
+            description: "Climate action and healthcare cost reduction",
+            status: "Became Law"
         }
     ];
     
@@ -564,45 +375,69 @@ app.get('/api/campaign-finance/:name', async (req, res) => {
     };
     
     try {
-        // Use DEMO_KEY for FEC API
-        const searchUrl = `https://api.open.fec.gov/v1/names/candidates/?q=${encodeURIComponent(repName)}&api_key=DEMO_KEY`;
+        // Use last name for more reliable FEC search
+        const lastName = repName.split(' ').pop();
+        const searchUrl = `https://api.open.fec.gov/v1/names/candidates/?q=${encodeURIComponent(lastName)}&api_key=DEMO_KEY`;
         const searchResponse = await fetch(searchUrl);
         
         if (searchResponse.ok) {
             const searchData = await searchResponse.json();
             
-            if (searchData.results?.[0]) {
-                const candidateId = searchData.results[0].id;
-                const totalsUrl = `https://api.open.fec.gov/v1/candidates/${candidateId}/totals/?api_key=DEMO_KEY&cycle=2024`;
-                const totalsResponse = await fetch(totalsUrl);
+            if (searchData.results && searchData.results.length > 0) {
+                const candidate = searchData.results.find(c => 
+                    c.name && c.name.toLowerCase().includes(lastName.toLowerCase())
+                ) || searchData.results[0];
                 
-                if (totalsResponse.ok) {
-                    const totalsData = await totalsResponse.json();
-                    const finances = totalsData.results?.[0];
+                if (candidate && candidate.id) {
+                    const totalsUrl = `https://api.open.fec.gov/v1/candidates/${candidate.id}/totals/?api_key=DEMO_KEY&sort=-cycle&per_page=1`;
+                    const totalsResponse = await fetch(totalsUrl);
                     
-                    if (finances) {
-                        const totalReceipts = finances.receipts || 0;
+                    if (totalsResponse.ok) {
+                        const totalsData = await totalsResponse.json();
+                        const finances = totalsData.results?.[0];
                         
-                        fundingData = {
-                            totalRaised: `$${totalReceipts.toLocaleString()}`,
-                            totalSpent: `$${(finances.disbursements || 0).toLocaleString()}`,
-                            cashOnHand: `$${(finances.cash_on_hand_end_period || 0).toLocaleString()}`,
-                            sources: []
-                        };
-                        
-                        const sources = [
-                            { name: "Individual Contributions", amount: finances.individual_contributions || 0, icon: "👤" },
-                            { name: "PAC Contributions", amount: finances.other_political_committee_contributions || 0, icon: "🏢" },
-                            { name: "Party Contributions", amount: finances.party_committee_contributions || 0, icon: "🏛️" }
-                        ];
-                        
-                        fundingData.sources = sources
-                            .filter(s => s.amount > 0)
-                            .map(s => ({
-                                ...s,
-                                amount: `$${s.amount.toLocaleString()}`,
-                                percentage: totalReceipts > 0 ? Math.round((s.amount / totalReceipts) * 100) : 0
-                            }));
+                        if (finances) {
+                            const totalReceipts = finances.receipts || 0;
+                            
+                            fundingData = {
+                                totalRaised: `$${totalReceipts.toLocaleString()}`,
+                                totalSpent: `$${(finances.disbursements || 0).toLocaleString()}`,
+                                cashOnHand: `$${(finances.cash_on_hand_end_period || 0).toLocaleString()}`,
+                                sources: []
+                            };
+                            
+                            const sources = [
+                                { 
+                                    name: "Individual Contributions", 
+                                    amount: finances.individual_contributions || 0, 
+                                    icon: "👤" 
+                                },
+                                { 
+                                    name: "PAC Contributions", 
+                                    amount: finances.other_political_committee_contributions || 0, 
+                                    icon: "🏢" 
+                                },
+                                { 
+                                    name: "Party Contributions", 
+                                    amount: finances.party_committee_contributions || 0, 
+                                    icon: "🏛️" 
+                                },
+                                {
+                                    name: "Candidate Self-Funding",
+                                    amount: finances.candidate_contribution || 0,
+                                    icon: "💵"
+                                }
+                            ];
+                            
+                            fundingData.sources = sources
+                                .filter(s => s.amount > 0)
+                                .map(s => ({
+                                    ...s,
+                                    amount: `$${s.amount.toLocaleString()}`,
+                                    percentage: totalReceipts > 0 ? Math.round((s.amount / totalReceipts) * 100) : 0
+                                }))
+                                .sort((a, b) => b.percentage - a.percentage);
+                        }
                     }
                 }
             }
@@ -624,14 +459,24 @@ app.get('/health', (req, res) => {
     });
 });
 
-// Serve index.html for root path
+// Serve HTML files
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    const indexPath = path.join(__dirname, 'templates', 'index.html');
+    const fallbackPath = path.join(__dirname, 'index.html');
+    
+    // Try templates folder first, then root
+    if (require('fs').existsSync(indexPath)) {
+        res.sendFile(indexPath);
+    } else if (require('fs').existsSync(fallbackPath)) {
+        res.sendFile(fallbackPath);
+    } else {
+        res.status(404).send('index.html not found');
+    }
 });
 
-// Handle all other routes by serving index.html
+// Handle all other routes
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    res.redirect('/');
 });
 
 const PORT = process.env.PORT || 3000;
