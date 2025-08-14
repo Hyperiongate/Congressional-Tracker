@@ -1,10 +1,57 @@
 const express = require('express');
 const path = require('path');
+const https = require('https');
 const app = express();
 
 // Middleware
 app.use(express.static('.'));
 app.use(express.json());
+
+// Helper function to fetch data using https module (for Node.js compatibility)
+function fetchData(url) {
+    return new Promise((resolve, reject) => {
+        https.get(url, (res) => {
+            let data = '';
+            
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+            
+            res.on('end', () => {
+                try {
+                    resolve(JSON.parse(data));
+                } catch (error) {
+                    reject(error);
+                }
+            });
+        }).on('error', (error) => {
+            reject(error);
+        });
+    });
+}
+
+// Helper function for FEC API calls
+function fetchFEC(url) {
+    return new Promise((resolve, reject) => {
+        https.get(url, (res) => {
+            let data = '';
+            
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+            
+            res.on('end', () => {
+                try {
+                    resolve(JSON.parse(data));
+                } catch (error) {
+                    reject(error);
+                }
+            });
+        }).on('error', (error) => {
+            reject(error);
+        });
+    });
+}
 
 // Helper function to get state from ZIP code prefix
 function getStateFromZip(zip) {
@@ -189,12 +236,7 @@ app.get('/api/representatives', async (req, res) => {
         // Use the correct GitHub-hosted URL to avoid SSL issues
         const githubUrl = 'https://raw.githubusercontent.com/unitedstates/congress-legislators/main/legislators-current.json';
         
-        const response = await fetch(githubUrl);
-        if (!response.ok) {
-            throw new Error('Failed to fetch legislators data');
-        }
-        
-        const legislators = await response.json();
+        const legislators = await fetchData(githubUrl);
         
         // Extract state from address
         const stateMatch = address.match(/\b([A-Z]{2})\b/i);
@@ -283,31 +325,23 @@ app.get('/api/representatives', async (req, res) => {
             try {
                 const rep = representatives[i];
                 const searchUrl = `https://api.open.fec.gov/v1/names/candidates/?q=${encodeURIComponent(rep.name.split(' ').pop())}&api_key=DEMO_KEY`;
-                const searchResponse = await fetch(searchUrl);
+                const searchData = await fetchFEC(searchUrl);
                 
-                if (searchResponse.ok) {
-                    const searchData = await searchResponse.json();
+                if (searchData.results && searchData.results.length > 0) {
+                    const candidate = searchData.results.find(c => 
+                        c.name && c.name.toLowerCase().includes(rep.name.split(' ').pop().toLowerCase())
+                    ) || searchData.results[0];
                     
-                    if (searchData.results && searchData.results.length > 0) {
-                        const candidate = searchData.results.find(c => 
-                            c.name && c.name.toLowerCase().includes(rep.name.split(' ').pop().toLowerCase())
-                        ) || searchData.results[0];
+                    if (candidate && candidate.id) {
+                        const totalsUrl = `https://api.open.fec.gov/v1/candidates/${candidate.id}/totals/?api_key=DEMO_KEY&sort=-cycle&per_page=1`;
+                        const totalsData = await fetchFEC(totalsUrl);
                         
-                        if (candidate && candidate.id) {
-                            const totalsUrl = `https://api.open.fec.gov/v1/candidates/${candidate.id}/totals/?api_key=DEMO_KEY&sort=-cycle&per_page=1`;
-                            const totalsResponse = await fetch(totalsUrl);
-                            
-                            if (totalsResponse.ok) {
-                                const totalsData = await totalsResponse.json();
-                                const finances = totalsData.results?.[0];
-                                
-                                if (finances) {
-                                    representatives[i].funding = {
-                                        totalRaised: `$${(finances.receipts || 0).toLocaleString()}`,
-                                        cycle: finances.cycle || 'Current'
-                                    };
-                                }
-                            }
+                        if (totalsData.results && totalsData.results[0]) {
+                            const finances = totalsData.results[0];
+                            representatives[i].funding = {
+                                totalRaised: `$${(finances.receipts || 0).toLocaleString()}`,
+                                cycle: finances.cycle || 'Current'
+                            };
                         }
                     }
                 }
@@ -378,67 +412,59 @@ app.get('/api/campaign-finance/:name', async (req, res) => {
         // Use last name for more reliable FEC search
         const lastName = repName.split(' ').pop();
         const searchUrl = `https://api.open.fec.gov/v1/names/candidates/?q=${encodeURIComponent(lastName)}&api_key=DEMO_KEY`;
-        const searchResponse = await fetch(searchUrl);
+        const searchData = await fetchFEC(searchUrl);
         
-        if (searchResponse.ok) {
-            const searchData = await searchResponse.json();
+        if (searchData.results && searchData.results.length > 0) {
+            const candidate = searchData.results.find(c => 
+                c.name && c.name.toLowerCase().includes(lastName.toLowerCase())
+            ) || searchData.results[0];
             
-            if (searchData.results && searchData.results.length > 0) {
-                const candidate = searchData.results.find(c => 
-                    c.name && c.name.toLowerCase().includes(lastName.toLowerCase())
-                ) || searchData.results[0];
+            if (candidate && candidate.id) {
+                const totalsUrl = `https://api.open.fec.gov/v1/candidates/${candidate.id}/totals/?api_key=DEMO_KEY&sort=-cycle&per_page=1`;
+                const totalsData = await fetchFEC(totalsUrl);
                 
-                if (candidate && candidate.id) {
-                    const totalsUrl = `https://api.open.fec.gov/v1/candidates/${candidate.id}/totals/?api_key=DEMO_KEY&sort=-cycle&per_page=1`;
-                    const totalsResponse = await fetch(totalsUrl);
+                if (totalsData.results && totalsData.results[0]) {
+                    const finances = totalsData.results[0];
+                    const totalReceipts = finances.receipts || 0;
                     
-                    if (totalsResponse.ok) {
-                        const totalsData = await totalsResponse.json();
-                        const finances = totalsData.results?.[0];
-                        
-                        if (finances) {
-                            const totalReceipts = finances.receipts || 0;
-                            
-                            fundingData = {
-                                totalRaised: `$${totalReceipts.toLocaleString()}`,
-                                totalSpent: `$${(finances.disbursements || 0).toLocaleString()}`,
-                                cashOnHand: `$${(finances.cash_on_hand_end_period || 0).toLocaleString()}`,
-                                sources: []
-                            };
-                            
-                            const sources = [
-                                { 
-                                    name: "Individual Contributions", 
-                                    amount: finances.individual_contributions || 0, 
-                                    icon: "👤" 
-                                },
-                                { 
-                                    name: "PAC Contributions", 
-                                    amount: finances.other_political_committee_contributions || 0, 
-                                    icon: "🏢" 
-                                },
-                                { 
-                                    name: "Party Contributions", 
-                                    amount: finances.party_committee_contributions || 0, 
-                                    icon: "🏛️" 
-                                },
-                                {
-                                    name: "Candidate Self-Funding",
-                                    amount: finances.candidate_contribution || 0,
-                                    icon: "💵"
-                                }
-                            ];
-                            
-                            fundingData.sources = sources
-                                .filter(s => s.amount > 0)
-                                .map(s => ({
-                                    ...s,
-                                    amount: `$${s.amount.toLocaleString()}`,
-                                    percentage: totalReceipts > 0 ? Math.round((s.amount / totalReceipts) * 100) : 0
-                                }))
-                                .sort((a, b) => b.percentage - a.percentage);
+                    fundingData = {
+                        totalRaised: `$${totalReceipts.toLocaleString()}`,
+                        totalSpent: `$${(finances.disbursements || 0).toLocaleString()}`,
+                        cashOnHand: `$${(finances.cash_on_hand_end_period || 0).toLocaleString()}`,
+                        sources: []
+                    };
+                    
+                    const sources = [
+                        { 
+                            name: "Individual Contributions", 
+                            amount: finances.individual_contributions || 0, 
+                            icon: "👤" 
+                        },
+                        { 
+                            name: "PAC Contributions", 
+                            amount: finances.other_political_committee_contributions || 0, 
+                            icon: "🏢" 
+                        },
+                        { 
+                            name: "Party Contributions", 
+                            amount: finances.party_committee_contributions || 0, 
+                            icon: "🏛️" 
+                        },
+                        {
+                            name: "Candidate Self-Funding",
+                            amount: finances.candidate_contribution || 0,
+                            icon: "💵"
                         }
-                    }
+                    ];
+                    
+                    fundingData.sources = sources
+                        .filter(s => s.amount > 0)
+                        .map(s => ({
+                            ...s,
+                            amount: `$${s.amount.toLocaleString()}`,
+                            percentage: totalReceipts > 0 ? Math.round((s.amount / totalReceipts) * 100) : 0
+                        }))
+                        .sort((a, b) => b.percentage - a.percentage);
                 }
             }
         }
