@@ -11,7 +11,8 @@ const CONFIG = {
     PORT: process.env.PORT || 3000,
     GOOGLE_CIVIC_API_KEY: process.env.GOOGLE_CIVIC_API_KEY || null,
     FEC_API_KEY: process.env.FEC_API_KEY || 'DEMO_KEY',
-    CONGRESS_API_KEY: process.env.CONGRESS_API_KEY || null
+    CONGRESS_API_KEY: process.env.CONGRESS_API_KEY || null,
+    PROPUBLICA_API_KEY: process.env.PROPUBLICA_API_KEY || null
 };
 
 // Cache for API responses
@@ -312,101 +313,284 @@ app.get('/api/representatives', async (req, res) => {
     }
 });
 
-// Voting record endpoint (placeholder)
-app.get('/api/voting-record/:bioguideId', async (req, res) => {
-    const bioguideId = req.params.bioguideId;
-    
-    // TODO: Implement with Congress.gov API when key is available
-    res.json({
-        votes: [
-            {
-                bill: {
-                    number: 'H.R. 1234',
-                    title: 'Infrastructure Investment Act'
-                },
-                description: 'A bill to provide funding for national infrastructure improvements',
-                date: '2024-03-15',
-                position: 'Yes'
-            },
-            {
-                bill: {
-                    number: 'S. 5678',
-                    title: 'Healthcare Reform Act'
-                },
-                description: 'A bill to expand healthcare access',
-                date: '2024-02-28',
-                position: 'No'
-            }
-        ]
-    });
-});
-
-// Campaign finance endpoint
-app.get('/api/campaign-finance/:identifier', async (req, res) => {
-    const identifier = req.params.identifier;
+// Get congressional statements and speeches
+async function getTranscripts(legislator) {
+    const transcripts = [];
     
     try {
-        // Search for candidate in FEC database
-        const searchUrl = `https://api.open.fec.gov/v1/names/candidates/?q=${encodeURIComponent(identifier)}&api_key=${CONFIG.FEC_API_KEY}`;
-        const searchResponse = await fetch(searchUrl);
+        // Use ProPublica Congress API for statements
+        const statementsUrl = `https://api.propublica.org/congress/v1/members/${legislator.bioguideId}/statements/119.json`;
         
-        if (!searchResponse.ok) {
-            throw new Error('FEC API error');
+        const response = await fetch(statementsUrl, {
+            headers: {
+                'X-API-Key': process.env.PROPUBLICA_API_KEY || 'DEMO_KEY'
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            
+            if (data.results && data.results.length > 0) {
+                data.results.forEach(statement => {
+                    transcripts.push({
+                        title: statement.title,
+                        date: statement.date,
+                        type: statement.type,
+                        url: statement.url,
+                        subject: statement.subjects ? statement.subjects[0] : 'Congressional Statement',
+                        excerpt: statement.title
+                    });
+                });
+            }
         }
         
-        const searchData = await searchResponse.json();
+        // Add C-SPAN recent appearances
+        transcripts.push({
+            title: `View ${legislator.name}'s Recent C-SPAN Appearances`,
+            date: 'Various',
+            type: 'Video/Transcript',
+            url: `https://www.c-span.org/person/?${legislator.bioguideId}`,
+            subject: 'Video Archives',
+            excerpt: 'Access video and transcripts of floor speeches, committee hearings, and public appearances'
+        });
         
-        if (searchData.results && searchData.results.length > 0) {
-            const candidateId = searchData.results[0].id;
+        // Add Congressional Record search
+        transcripts.push({
+            title: 'Search Congressional Record',
+            date: 'Last 6 months',
+            type: 'Official Record',
+            url: `https://www.congress.gov/search?q={"source":"congrecord","search":"${encodeURIComponent(legislator.name)}"}&searchResultViewType=expanded`,
+            subject: 'Official Statements',
+            excerpt: 'Search official congressional record for speeches and statements'
+        });
+        
+    } catch (error) {
+        console.error('Error fetching transcripts:', error);
+    }
+    
+    return transcripts;
+}
+
+// Get voting record with real data
+async function getVotingRecord(legislator) {
+    const votes = [];
+    
+    try {
+        // Use ProPublica API for recent votes
+        const votesUrl = `https://api.propublica.org/congress/v1/members/${legislator.bioguideId}/votes.json`;
+        
+        const response = await fetch(votesUrl, {
+            headers: {
+                'X-API-Key': process.env.PROPUBLICA_API_KEY || 'DEMO_KEY'
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
             
-            // Get financial summary
-            const financeUrl = `https://api.open.fec.gov/v1/candidates/${candidateId}/totals/?api_key=${CONFIG.FEC_API_KEY}&cycle=2024`;
-            const financeResponse = await fetch(financeUrl);
-            
-            if (financeResponse.ok) {
-                const financeData = await financeResponse.json();
+            if (data.results && data.results[0] && data.results[0].votes) {
+                // Group votes by topic
+                const votesByTopic = {};
                 
-                if (financeData.results && financeData.results.length > 0) {
-                    const finances = financeData.results[0];
+                data.results[0].votes.slice(0, 20).forEach(vote => {
+                    const topic = vote.question || 'Other';
+                    if (!votesByTopic[topic]) {
+                        votesByTopic[topic] = [];
+                    }
                     
-                    res.json({
-                        summary: {
-                            totalRaised: `$${(finances.receipts || 0).toLocaleString()}`,
-                            totalSpent: `$${(finances.disbursements || 0).toLocaleString()}`,
-                            cashOnHand: `$${(finances.cash_on_hand_end_period || 0).toLocaleString()}`,
-                            lastReport: finances.coverage_end_date || 'Not available'
-                        },
-                        sources: [
-                            {
-                                name: 'Individual Contributions',
-                                amount: `$${(finances.individual_contributions || 0).toLocaleString()}`,
-                                percentage: finances.receipts ? Math.round((finances.individual_contributions / finances.receipts) * 100) : 0
-                            },
-                            {
-                                name: 'PAC Contributions',
-                                amount: `$${(finances.other_political_committee_contributions || 0).toLocaleString()}`,
-                                percentage: finances.receipts ? Math.round((finances.other_political_committee_contributions / finances.receipts) * 100) : 0
-                            }
-                        ]
+                    votesByTopic[topic].push({
+                        bill: vote.bill ? `${vote.bill.number} - ${vote.bill.title}` : vote.description,
+                        date: vote.date,
+                        position: vote.position,
+                        result: vote.result,
+                        description: vote.description,
+                        question: vote.question
                     });
-                    return;
+                });
+                
+                return { grouped: votesByTopic, raw: data.results[0].votes };
+            }
+        }
+        
+        // Fallback data
+        return {
+            grouped: {
+                'Recent Votes': [{
+                    bill: 'Voting data unavailable',
+                    date: new Date().toISOString().split('T')[0],
+                    position: 'Unknown',
+                    description: 'ProPublica API key required for voting records'
+                }]
+            },
+            raw: []
+        };
+        
+    } catch (error) {
+        console.error('Error fetching voting record:', error);
+        return { grouped: {}, raw: [] };
+    }
+}
+
+// Enhanced campaign finance with real FEC data
+async function getCampaignFinanceDetailed(legislator) {
+    try {
+        // Try multiple search strategies
+        let candidateId = null;
+        
+        // First try with FEC ID if available
+        if (legislator.fecId) {
+            candidateId = legislator.fecId;
+        } else {
+            // Search by name
+            const searchUrl = `https://api.open.fec.gov/v1/names/candidates/?q=${encodeURIComponent(legislator.name)}&api_key=${CONFIG.FEC_API_KEY}`;
+            const searchResponse = await fetch(searchUrl);
+            
+            if (searchResponse.ok) {
+                const searchData = await searchResponse.json();
+                if (searchData.results && searchData.results.length > 0) {
+                    candidateId = searchData.results[0].id;
                 }
             }
         }
         
-        // No data found
-        res.json({
-            summary: null,
-            sources: []
-        });
+        if (!candidateId) {
+            return {
+                summary: {
+                    totalRaised: 'Data not available',
+                    totalSpent: 'Data not available',
+                    cashOnHand: 'Data not available',
+                    lastReport: 'Data not available'
+                },
+                sources: [],
+                topContributors: []
+            };
+        }
+        
+        // Get financial summary
+        const financeUrl = `https://api.open.fec.gov/v1/candidates/${candidateId}/totals/?api_key=${CONFIG.FEC_API_KEY}&cycle=2024`;
+        const financeResponse = await fetch(financeUrl);
+        
+        if (!financeResponse.ok) {
+            throw new Error('FEC API error');
+        }
+        
+        const financeData = await financeResponse.json();
+        
+        if (financeData.results && financeData.results.length > 0) {
+            const finances = financeData.results[0];
+            
+            // Get top contributors
+            const contributorsUrl = `https://api.open.fec.gov/v1/schedules/schedule_a/by_size/by_candidate/?cycle=2024&candidate_id=${candidateId}&api_key=${CONFIG.FEC_API_KEY}&per_page=10`;
+            const contribResponse = await fetch(contributorsUrl);
+            
+            let topContributors = [];
+            if (contribResponse.ok) {
+                const contribData = await contribResponse.json();
+                if (contribData.results) {
+                    topContributors = contribData.results.map(c => ({
+                        size: c.size,
+                        count: c.count,
+                        total: `${c.total.toLocaleString()}`
+                    }));
+                }
+            }
+            
+            return {
+                summary: {
+                    totalRaised: `${(finances.receipts || 0).toLocaleString()}`,
+                    totalSpent: `${(finances.disbursements || 0).toLocaleString()}`,
+                    cashOnHand: `${(finances.cash_on_hand_end_period || 0).toLocaleString()}`,
+                    lastReport: finances.coverage_end_date || 'Not available',
+                    debtOwed: `${(finances.debts_owed_by_committee || 0).toLocaleString()}`
+                },
+                sources: [
+                    {
+                        name: 'Individual Contributions',
+                        amount: `${(finances.individual_contributions || 0).toLocaleString()}`,
+                        percentage: finances.receipts ? Math.round((finances.individual_contributions / finances.receipts) * 100) : 0
+                    },
+                    {
+                        name: 'PAC Contributions',
+                        amount: `${(finances.other_political_committee_contributions || 0).toLocaleString()}`,
+                        percentage: finances.receipts ? Math.round((finances.other_political_committee_contributions / finances.receipts) * 100) : 0
+                    },
+                    {
+                        name: 'Party Contributions',
+                        amount: `${(finances.party_committee_contributions || 0).toLocaleString()}`,
+                        percentage: finances.receipts ? Math.round((finances.party_committee_contributions / finances.receipts) * 100) : 0
+                    },
+                    {
+                        name: 'Candidate Self-Funding',
+                        amount: `${(finances.candidate_contribution || 0).toLocaleString()}`,
+                        percentage: finances.receipts ? Math.round((finances.candidate_contribution / finances.receipts) * 100) : 0
+                    }
+                ].filter(s => s.percentage > 0),
+                topContributors: topContributors
+            };
+        }
+        
+        return {
+            summary: {
+                totalRaised: 'Data not available',
+                totalSpent: 'Data not available',
+                cashOnHand: 'Data not available',
+                lastReport: 'Data not available'
+            },
+            sources: [],
+            topContributors: []
+        };
         
     } catch (error) {
         console.error('Campaign finance error:', error);
-        res.json({
-            summary: null,
-            sources: []
-        });
+        return {
+            summary: {
+                totalRaised: 'Data temporarily unavailable',
+                totalSpent: 'Data temporarily unavailable',
+                cashOnHand: 'Data temporarily unavailable',
+                lastReport: 'Check back later'
+            },
+            sources: [],
+            topContributors: []
+        };
     }
+}
+
+// Voting record endpoint with real data
+app.get('/api/voting-record/:bioguideId', async (req, res) => {
+    const bioguideId = req.params.bioguideId;
+    
+    const mockLegislator = { bioguideId, name: 'Representative' };
+    const votingData = await getVotingRecord(mockLegislator);
+    
+    res.json(votingData);
+});
+
+// Enhanced campaign finance endpoint
+app.get('/api/campaign-finance/:identifier', async (req, res) => {
+    const identifier = req.params.identifier;
+    
+    // Try to find legislator info from identifier
+    const mockLegislator = {
+        name: identifier,
+        fecId: null
+    };
+    
+    const financeData = await getCampaignFinanceDetailed(mockLegislator);
+    res.json(financeData);
+});
+
+// New transcripts endpoint
+app.get('/api/transcripts/:bioguideId', async (req, res) => {
+    const bioguideId = req.params.bioguideId;
+    
+    // Get legislator name from cache or database
+    const mockLegislator = {
+        bioguideId,
+        name: 'Representative' // This would come from your data
+    };
+    
+    const transcripts = await getTranscripts(mockLegislator);
+    res.json({ transcripts });
 });
 
 // Health check
