@@ -79,7 +79,8 @@ async function getRepresentativesByAddress(address) {
         // Fallback: Use TheUnitedStates.io data with state lookup
         if (representatives.length === 0) {
             const state = getStateFromAddress(address);
-            const legislatorsResponse = await fetch('https://theunitedstates.io/congress-legislators/legislators-current.json');
+            // Use GitHub raw content URL to avoid SSL certificate issues
+            const legislatorsResponse = await fetch('https://raw.githubusercontent.com/unitedstates/congress-legislators/main/legislators-current.json');
             
             if (legislatorsResponse.ok) {
                 const legislators = await legislatorsResponse.json();
