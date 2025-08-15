@@ -519,6 +519,12 @@
                                     <span class="vote-result ${voteClass}">
                                         ${rep.name} voted: ${vote.position}
                                     </span>
+                                    ${vote.voteUrl ? `
+                                        <a href="${vote.voteUrl}" target="_blank" 
+                                           style="display: inline-block; margin-top: 10px; color: #3b82f6; font-size: 14px;">
+                                            View Roll Call Vote →
+                                        </a>
+                                    ` : ''}
                                 </div>
                             `;
                         });
@@ -650,46 +656,85 @@
 
         async function showCalendar(index) {
             const rep = currentRepresentatives[index];
+            showModal('Public Calendar & Events', `
+                <h3>${rep.name}'s Schedule & Events</h3>
+                <div class="loading"><div class="loading-spinner"></div><p>Loading calendar information...</p></div>
+            `);
+            
+            try {
+                const response = await fetch(`/api/calendar/${rep.bioguideId}`);
+                const data = await response.json();
+                
+                let html = `<h3>${rep.name}'s Schedule & Events</h3>`;
+                html += '<p style="color: #666; margin-bottom: 20px;">Click any item to view schedules and events:</p>';
+                
+                if (data.events && data.events.length > 0) {
+                    data.events.forEach(event => {
+                        html += `
+                            <div class="event-item" style="cursor: pointer;" onclick="window.open('${event.url}', '_blank')">
+                                <div class="event-date" style="background: #3b82f6;">
+                                    ${event.type}
+                                </div>
+                                <div>
+                                    <h4 style="margin-bottom: 5px;">${event.title}</h4>
+                                    <p style="color: #666; margin: 0;">${event.description}</p>
+                                    <p style="color: #3b82f6; font-size: 14px; margin-top: 5px;">
+                                        Click to view →
+                                    </p>
+                                </div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    // Fallback if API fails
+                    const chamber = rep.type === 'Senator' ? 'senate' : 'house';
+                    html += `
+                        <div class="calendar-item">
+                            <h4>📅 Official Calendar</h4>
+                            <p>View the representative's official schedule:</p>
+                            <a href="${rep.website}" target="_blank" class="action-btn" style="display: inline-block; margin: 10px 0;">
+                                Visit Official Website →
+                            </a>
+                        </div>
+                        
+                        <div class="calendar-item">
+                            <h4>🏛️ ${chamber === 'senate' ? 'Senate' : 'House'} Schedule</h4>
+                            <a href="https://www.${chamber}.gov/legislative-activity" target="_blank" class="action-btn" style="display: inline-block; margin: 10px 0;">
+                                View Floor Schedule →
+                            </a>
+                        </div>
+                    `;
+                }
+                
+                html += `
+                    <div style="margin-top: 20px; padding: 15px; background: #f3f4f6; border-radius: 10px;">
+                        <strong>Tip:</strong> Call their office for upcoming town halls: 
+                        <span style="font-weight: bold;">${rep.phone}</span>
+                    </div>
+                `;
+                
+                document.getElementById('modal-body').innerHTML = html;
+            } catch (error) {
+                showCalendar_fallback(index);
+            }
+        }
+        
+        function showCalendar_fallback(index) {
+            const rep = currentRepresentatives[index];
             const chamber = rep.type === 'Senator' ? 'senate' : 'house';
             
-            showModal('Public Calendar & Events', `
+            document.getElementById('modal-body').innerHTML = `
                 <h3>${rep.name}'s Public Calendar</h3>
                 <div class="calendar-item">
-                    <h4>📅 Official Calendar</h4>
-                    <p>View the representative's official schedule and upcoming events:</p>
+                    <h4>📅 View Schedules</h4>
                     <a href="${rep.website}" target="_blank" class="action-btn" style="display: inline-block; margin: 10px 0;">
-                        Visit Official Website →
+                        Official Website →
                     </a>
-                </div>
-                
-                <div class="calendar-item">
-                    <h4>🏛️ Congressional Schedule</h4>
-                    <p>View when Congress is in session:</p>
-                    <a href="https://www.${chamber}.gov/legislative/schedule" target="_blank" class="action-btn" style="display: inline-block; margin: 10px 0;">
+                    <a href="https://www.${chamber}.gov/legislative-activity" target="_blank" class="action-btn" style="display: inline-block; margin: 10px 0;">
                         ${chamber === 'senate' ? 'Senate' : 'House'} Calendar →
                     </a>
                 </div>
-                
-                <div class="calendar-item">
-                    <h4>🎤 Committee Hearings</h4>
-                    <p>Find committee schedules and hearings:</p>
-                    <a href="https://www.congress.gov/committees/schedule" target="_blank" class="action-btn" style="display: inline-block; margin: 10px 0;">
-                        Committee Schedule →
-                    </a>
-                </div>
-                
-                <div class="calendar-item">
-                    <h4>🏘️ Town Halls & Local Events</h4>
-                    <p>Town halls are typically announced on the representative's website and social media. 
-                       Check their official channels or call their local office:</p>
-                    <p style="font-weight: bold; margin-top: 10px;">${rep.phone}</p>
-                </div>
-                
-                <div style="margin-top: 20px; padding: 15px; background: #f3f4f6; border-radius: 10px;">
-                    <strong>Tip:</strong> Many representatives announce events on their social media. 
-                    Search for "${rep.name}" on Twitter/X or Facebook for the latest updates.
-                </div>
-            `);
+            `;
         }
 
         async function showTranscripts(index) {
