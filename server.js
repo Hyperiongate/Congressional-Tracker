@@ -81,8 +81,8 @@ async function getRepresentativesByAddress(address) {
             const state = getStateFromAddress(address);
             
             try {
-                // Use GitHub raw content URL to avoid SSL certificate issues
-                const legislatorsResponse = await fetch('https://raw.githubusercontent.com/unitedstates/congress-legislators/main/legislators-current.json');
+                // Use the official GitHub Pages hosted URL
+                const legislatorsResponse = await fetch('https://unitedstates.github.io/congress-legislators/legislators-current.json');
                 
                 console.log('Legislators API status:', legislatorsResponse.status);
                 
