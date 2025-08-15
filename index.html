@@ -407,8 +407,10 @@
             const resultsDiv = document.getElementById('results');
             currentRepresentatives = data.representatives || [];
             
+            console.log('Received representatives:', currentRepresentatives);
+            
             if (currentRepresentatives.length === 0) {
-                showError('No representatives found for this address.');
+                showError('No representatives found for this address. Please verify your address and try again.');
                 return;
             }
             
