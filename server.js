@@ -1,40 +1,4 @@
-// Get transcripts - SIMPLE AND WORKING with real transcript sources
-async function getTranscripts(legislator) {
-    const transcripts = [];
-    
-    // Rev.// Get transcripts - SIMPLE AND WORKING
-async function getTranscripts(legislator) {
-    const transcripts = [];
-    const lastName = legislator.name.split(' ').pop();
-    
-    // Congressional Record - THIS WORKS
-    transcripts.push({
-        title: 'Congressional Record - Floor Speeches',
-        date: 'Last 30 days',
-        type: 'Official Transcripts',
-        url: `https://www.congress.gov/congressional-record/browse-by-date`,
-        subject: 'Floor Speeches',
-        excerpt: `Search for "${legislator.name}" to find recent floor speeches`,
-        source: 'Congress        // C-SPAN with correct URL format
-        if (legislator.bioguideId) {
-            // C-SPAN uses a different URL format - need to search by name
-            const cspanSearchName = legislator.name.replace(/ /g, '+');
-            transcripts.push({
-                title: `${legislator.name}'// Calendar endpoint with real links
-app.get('/api/calendar/:bioguideId', async (req, res) => {
-    const bioguideId = req.params.bioguideId;
-    
-    // Get legislator info from the request or cache
-    const mockLegislator = {
-        bioguideId,
-        name: 'Representative',
-        type: 'Representative',
-        website: 'https://www.house.gov'
-    };
-    
-    const events = await getCalendarEvents(mockLegislator);
-    res.json({ events });
-});const express = require('express');
+const express = require('express');
 const path = require('path');
 const app = express();
 
@@ -325,29 +289,6 @@ function formatAddress(addr) {
     if (!addr) return 'Capitol Building, Washington, DC';
     return `${addr.line1}${addr.line2 ? ', ' + addr.line2 : ''}, ${addr.city}, ${addr.state} ${addr.zip}`;
 }
-
-// API Routes
-app.get('/api/representatives', async (req, res) => {
-    const address = req.query.address;
-    
-    if (!address) {
-        return res.status(400).json({
-            error: 'Address parameter is required'
-        });
-    }
-    
-    try {
-        const representatives = await getRepresentativesByAddress(address);
-        console.log(`Found ${representatives.length} representatives for address: ${address}`);
-        res.json({ representatives });
-    } catch (error) {
-        console.error('API Error:', error);
-        res.status(500).json({
-            error: 'Unable to fetch representatives',
-            message: 'Please check your address and try again'
-        });
-    }
-});
 
 // Get transcript sources for fact-checking
 async function getTranscripts(legislator) {
@@ -651,38 +592,38 @@ async function getCampaignFinanceDetailed(legislator) {
                     topContributors = contribData.results.map(c => ({
                         size: c.size,
                         count: c.count,
-                        total: `${c.total.toLocaleString()}`
+                        total: `$${c.total.toLocaleString()}`
                     }));
                 }
             }
             
             return {
                 summary: {
-                    totalRaised: `${(finances.receipts || 0).toLocaleString()}`,
-                    totalSpent: `${(finances.disbursements || 0).toLocaleString()}`,
-                    cashOnHand: `${(finances.cash_on_hand_end_period || 0).toLocaleString()}`,
+                    totalRaised: `$${(finances.receipts || 0).toLocaleString()}`,
+                    totalSpent: `$${(finances.disbursements || 0).toLocaleString()}`,
+                    cashOnHand: `$${(finances.cash_on_hand_end_period || 0).toLocaleString()}`,
                     lastReport: finances.coverage_end_date || 'Not available',
-                    debtOwed: `${(finances.debts_owed_by_committee || 0).toLocaleString()}`
+                    debtOwed: `$${(finances.debts_owed_by_committee || 0).toLocaleString()}`
                 },
                 sources: [
                     {
                         name: 'Individual Contributions',
-                        amount: `${(finances.individual_contributions || 0).toLocaleString()}`,
+                        amount: `$${(finances.individual_contributions || 0).toLocaleString()}`,
                         percentage: finances.receipts ? Math.round((finances.individual_contributions / finances.receipts) * 100) : 0
                     },
                     {
                         name: 'PAC Contributions',
-                        amount: `${(finances.other_political_committee_contributions || 0).toLocaleString()}`,
+                        amount: `$${(finances.other_political_committee_contributions || 0).toLocaleString()}`,
                         percentage: finances.receipts ? Math.round((finances.other_political_committee_contributions / finances.receipts) * 100) : 0
                     },
                     {
                         name: 'Party Contributions',
-                        amount: `${(finances.party_committee_contributions || 0).toLocaleString()}`,
+                        amount: `$${(finances.party_committee_contributions || 0).toLocaleString()}`,
                         percentage: finances.receipts ? Math.round((finances.party_committee_contributions / finances.receipts) * 100) : 0
                     },
                     {
                         name: 'Candidate Self-Funding',
-                        amount: `${(finances.candidate_contribution || 0).toLocaleString()}`,
+                        amount: `$${(finances.candidate_contribution || 0).toLocaleString()}`,
                         percentage: finances.receipts ? Math.round((finances.candidate_contribution / finances.receipts) * 100) : 0
                     }
                 ].filter(s => s.percentage > 0),
@@ -715,6 +656,29 @@ async function getCampaignFinanceDetailed(legislator) {
         };
     }
 }
+
+// API Routes
+app.get('/api/representatives', async (req, res) => {
+    const address = req.query.address;
+    
+    if (!address) {
+        return res.status(400).json({
+            error: 'Address parameter is required'
+        });
+    }
+    
+    try {
+        const representatives = await getRepresentativesByAddress(address);
+        console.log(`Found ${representatives.length} representatives for address: ${address}`);
+        res.json({ representatives });
+    } catch (error) {
+        console.error('API Error:', error);
+        res.status(500).json({
+            error: 'Unable to fetch representatives',
+            message: 'Please check your address and try again'
+        });
+    }
+});
 
 // Voting record endpoint with real data
 app.get('/api/voting-record/:bioguideId', async (req, res) => {
@@ -754,6 +718,22 @@ app.get('/api/transcripts/:bioguideId', async (req, res) => {
     res.json({ transcripts });
 });
 
+// Calendar endpoint with real links
+app.get('/api/calendar/:bioguideId', async (req, res) => {
+    const bioguideId = req.params.bioguideId;
+    
+    // Get legislator info from the request or cache
+    const mockLegislator = {
+        bioguideId,
+        name: 'Representative',
+        type: 'Representative',
+        website: 'https://www.house.gov'
+    };
+    
+    const events = await getCalendarEvents(mockLegislator);
+    res.json({ events });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({
@@ -762,7 +742,8 @@ app.get('/api/health', (req, res) => {
         apis: {
             googleCivic: CONFIG.GOOGLE_CIVIC_API_KEY ? 'configured' : 'not configured',
             fec: CONFIG.FEC_API_KEY !== 'DEMO_KEY' ? 'configured' : 'using demo key',
-            congress: CONFIG.CONGRESS_API_KEY ? 'configured' : 'not configured'
+            congress: CONFIG.CONGRESS_API_KEY ? 'configured' : 'not configured',
+            propublica: CONFIG.PROPUBLICA_API_KEY ? 'configured' : 'not configured'
         }
     });
 });
@@ -793,4 +774,5 @@ app.listen(CONFIG.PORT, () => {
     console.log(`- Google Civic: ${CONFIG.GOOGLE_CIVIC_API_KEY ? '✓ Configured' : '✗ Not configured (limited accuracy)'}`);
     console.log(`- FEC: ${CONFIG.FEC_API_KEY !== 'DEMO_KEY' ? '✓ Configured' : '⚠ Using DEMO_KEY'}`);
     console.log(`- Congress.gov: ${CONFIG.CONGRESS_API_KEY ? '✓ Configured' : '✗ Not configured'}`);
+    console.log(`- ProPublica: ${CONFIG.PROPUBLICA_API_KEY ? '✓ Configured' : '✗ Not configured'}`);
 });
