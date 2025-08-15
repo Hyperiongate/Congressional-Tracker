@@ -1,778 +1,923 @@
-// Calendar endpoint with real links
-app.get('/api/calendar/:bioguideId', async (req, res) => {
-    const bioguideId = req.params.bioguideId;
-    
-    // Get legislator info from the request or cache
-    const mockLegislator = {
-        bioguideId,
-        name: 'Representative',
-        type: 'Representative',
-        website: 'https://www.house.gov'
-    };
-    
-    const events = await getCalendarEvents(mockLegislator);
-    res.json({ events });
-});const express = require('express');
-const path = require('path');
-const app = express();
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Congressional Tracker - Find Your Representatives</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-// Middleware
-app.use(express.static('.'));
-app.use(express.json());
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            min-height: 100vh;
+            color: #333;
+        }
 
-// Configuration
-const CONFIG = {
-    PORT: process.env.PORT || 3000,
-    GOOGLE_CIVIC_API_KEY: process.env.GOOGLE_CIVIC_API_KEY || null,
-    FEC_API_KEY: process.env.FEC_API_KEY || 'DEMO_KEY',
-    CONGRESS_API_KEY: process.env.CONGRESS_API_KEY || null,
-    PROPUBLICA_API_KEY: process.env.PROPUBLICA_API_KEY || null
-};
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
 
-// Cache for API responses
-const cache = new Map();
-const CACHE_DURATION = 60 * 60 * 1000; // 1 hour
+        header {
+            text-align: center;
+            color: white;
+            padding: 40px 0;
+            animation: fadeIn 0.8s ease-out;
+        }
 
-// Get representatives by address using Google Civic API
-async function getRepresentativesByAddress(address) {
-    // Check cache first
-    const cacheKey = `reps-${address}`;
-    const cached = cache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-        return cached.data;
-    }
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
 
-    const representatives = [];
+        .subtitle {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
 
-    try {
-        // If Google Civic API key is available, use it
-        if (CONFIG.GOOGLE_CIVIC_API_KEY) {
-            const url = `https://www.googleapis.com/civicinfo/v2/representatives?address=${encodeURIComponent(address)}&key=${CONFIG.GOOGLE_CIVIC_API_KEY}&levels=country&roles=legislatorUpperBody&roles=legislatorLowerBody`;
-            
-            const response = await fetch(url);
-            if (response.ok) {
-                const data = await response.json();
-                
-                // Parse Google Civic API response
-                if (data.officials && data.offices) {
-                    data.offices.forEach(office => {
-                        if (office.name.includes('United States Senate') || 
-                            office.name.includes('United States House')) {
-                            
-                            office.officialIndices.forEach(index => {
-                                const official = data.officials[index];
-                                const isHouse = office.name.includes('House');
-                                
-                                // Extract district number if House member
-                                let district = null;
-                                if (isHouse) {
-                                    const districtMatch = office.name.match(/District (\d+)/);
-                                    district = districtMatch ? districtMatch[1] : null;
-                                }
-                                
-                                representatives.push({
-                                    name: official.name,
-                                    type: isHouse ? 'Representative' : 'Senator',
-                                    party: official.party === 'Democratic Party' ? 'Democrat' : 
-                                           official.party === 'Republican Party' ? 'Republican' : 
-                                           official.party,
-                                    state: getStateFromAddress(address),
-                                    district: district,
-                                    phone: official.phones ? official.phones[0] : 'Not available',
-                                    website: official.urls ? official.urls[0] : 'Not available',
-                                    office: official.address ? formatAddress(official.address[0]) : 'Capitol Building, Washington, DC',
-                                    photoUrl: official.photoUrl || null,
-                                    channels: official.channels || []
-                                });
-                            });
-                        }
-                    });
-                }
+        .search-section {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            animation: slideUp 0.6s ease-out 0.2s both;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .address-form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        input[type="text"] {
+            padding: 15px 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #3b82f6;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(59, 130, 246, 0.2);
+        }
+
+        button {
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 20px rgba(59, 130, 246, 0.3);
+        }
+
+        button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 30px rgba(59, 130, 246, 0.4);
+        }
+
+        button:active {
+            transform: translateY(-1px);
+        }
+
+        .results-section {
+            display: none;
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        .representative-card {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            transition: transform 0.3s ease;
+        }
+
+        .representative-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 50px rgba(0,0,0,0.15);
+        }
+
+        .rep-header {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .rep-photo {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .rep-info h2 {
+            color: #1e3a8a;
+            margin-bottom: 5px;
+            font-size: 1.5em;
+        }
+
+        .rep-info p {
+            color: #666;
+            margin: 3px 0;
+        }
+
+        .rep-type {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .senator {
+            background: #dbeafe;
+            color: #1e3a8a;
+        }
+
+        .representative {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .action-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .action-btn {
+            padding: 15px 20px;
+            background: #f3f4f6;
+            border: 2px solid transparent;
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+            color: #333;
+        }
+
+        .action-btn:hover {
+            background: white;
+            border-color: #3b82f6;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+
+        .action-btn i {
+            font-size: 24px;
+            color: #3b82f6;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .modal-content {
+            position: relative;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            margin: 50px auto;
+            animation: slideUp 0.3s ease;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-size: 30px;
+            color: #999;
+            cursor: pointer;
+            transition: color 0.3s ease;
+        }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid #c33;
+        }
+
+        .vote-item, .funding-item, .contact-item {
+            padding: 15px;
+            background: #f9fafb;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border-left: 4px solid #3b82f6;
+        }
+
+        .vote-item h4, .funding-item h4 {
+            color: #1e3a8a;
+            margin-bottom: 8px;
+        }
+
+        .vote-result {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-top: 8px;
+        }
+
+        .vote-yes {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .vote-no {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .vote-present {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
             }
         }
-        
-        // Fallback: Use GitHub raw content with state lookup
-        if (representatives.length === 0) {
-            const state = getStateFromAddress(address);
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            h1 { font-size: 2em; }
+            .rep-header { flex-direction: column; text-align: center; }
+            .action-buttons { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Congressional Tracker</h1>
+            <p class="subtitle">Find Your Representatives and Track Their Activities</p>
+        </header>
+
+        <div class="search-section">
+            <h3 style="margin-bottom: 20px; color: #1e3a8a;">Enter Your Address</h3>
+            <form class="address-form" onsubmit="findRepresentatives(event)">
+                <input type="text" id="street" placeholder="Street Address" required>
+                <input type="text" id="city" placeholder="City" required>
+                <input type="text" id="state" placeholder="State (e.g., CA)" maxlength="2" required>
+                <input type="text" id="zipcode" placeholder="ZIP Code" maxlength="5" required>
+                <button type="submit">Find My Representatives</button>
+            </form>
+            <p style="color: #666; font-size: 14px; margin-top: 15px; text-align: center;">
+                We'll find your U.S. Representatives and Senators based on your address
+            </p>
+        </div>
+
+        <div id="results" class="results-section">
+            <!-- Results will be populated here -->
+        </div>
+    </div>
+
+    <!-- Modal for displaying detailed information -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal()">&times;</span>
+            <div id="modal-body">
+                <!-- Modal content will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Representative data structure
+        let currentRepresentatives = [];
+
+        async function findRepresentatives(event) {
+            event.preventDefault();
+            
+            const street = document.getElementById('street').value;
+            const city = document.getElementById('city').value;
+            const state = document.getElementById('state').value.toUpperCase();
+            const zipcode = document.getElementById('zipcode').value;
+            
+            const fullAddress = `${street}, ${city}, ${state} ${zipcode}`;
+            
+            // Show loading state
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.style.display = 'block';
+            resultsDiv.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>Finding your representatives...</p></div>';
+
+            try {
+                // Call backend API with full address
+                const response = await fetch(`/api/representatives?address=${encodeURIComponent(fullAddress)}`);
+                
+                if (!response.ok) {
+                    throw new Error('Failed to fetch representatives');
+                }
+                
+                const data = await response.json();
+                displayResults(data);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Unable to find representatives. Please check your address and try again.');
+            }
+        }
+
+        function displayResults(data) {
+            const resultsDiv = document.getElementById('results');
+            currentRepresentatives = data.representatives || [];
+            
+            console.log('Received representatives:', currentRepresentatives);
+            
+            if (currentRepresentatives.length === 0) {
+                showError('No representatives found for this address. Please verify your address and try again.');
+                return;
+            }
+            
+            let html = '<h2 style="color: white; text-align: center; margin-bottom: 30px;">Your Congressional Representatives</h2>';
+            
+            currentRepresentatives.forEach((rep, index) => {
+                const initials = rep.name.split(' ')
+                    .map(n => n[0])
+                    .filter(n => n && n.match(/[A-Z]/))
+                    .slice(0, 2)
+                    .join('');
+                
+                const typeClass = rep.type === 'Senator' ? 'senator' : 'representative';
+                const typeLabel = rep.type === 'Senator' ? 'U.S. Senator' : 'U.S. Representative';
+                
+                html += `
+                    <div class="representative-card">
+                        <div class="rep-header">
+                            <div class="rep-photo">${initials}</div>
+                            <div class="rep-info">
+                                <h2>
+                                    ${rep.name}
+                                    <span class="rep-type ${typeClass}">${typeLabel}</span>
+                                </h2>
+                                <p>${rep.party} - ${rep.state} ${rep.district ? `District ${rep.district}` : ''}</p>
+                                ${rep.note ? `<p style="color: #ef4444; font-size: 0.875rem; margin-top: 5px;">⚠️ ${rep.note}</p>` : ''}
+                            </div>
+                        </div>
+                        
+                        <div class="action-buttons">
+                            <button class="action-btn" onclick="showVotingRecord(${index})">
+                                <i>🗳️</i>
+                                <span>Voting Record</span>
+                            </button>
+                            
+                            <button class="action-btn" onclick="showCampaignFinance(${index})">
+                                <i>💰</i>
+                                <span>Campaign Finance</span>
+                            </button>
+                            
+                            <button class="action-btn" onclick="showCalendar(${index})">
+                                <i>📅</i>
+                                <span>Daily Calendar</span>
+                            </button>
+                            
+                            <button class="action-btn" onclick="showTranscripts(${index})">
+                                <i>📄</i>
+                                <span>Find Transcripts</span>
+                            </button>
+                            
+                            <button class="action-btn" onclick="showContact(${index})">
+                                <i>📞</i>
+                                <span>How to Contact</span>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            resultsDiv.innerHTML = html;
+        }
+
+        function showError(message) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.style.display = 'block';
+            resultsDiv.innerHTML = `<div class="error-message">${message}</div>`;
+        }
+
+        // Modal functions for each feature
+        async function showVotingRecord(index) {
+            const rep = currentRepresentatives[index];
+            showModal('Voting Record', `
+                <h3>${rep.name}'s Recent Voting Record</h3>
+                <div class="loading"><div class="loading-spinner"></div><p>Loading voting record...</p></div>
+            `);
             
             try {
-                // Use the official GitHub Pages hosted URL
-                const legislatorsResponse = await fetch('https://unitedstates.github.io/congress-legislators/legislators-current.json');
-                
-                console.log('Legislators API status:', legislatorsResponse.status);
-                
-                if (legislatorsResponse.ok) {
-                    const legislators = await legislatorsResponse.json();
-                    console.log(`Loaded ${legislators.length} total legislators`);
-                    
-                    // Get all legislators for the state
-                    const stateReps = legislators.filter(leg => {
-                        const currentTerm = leg.terms[leg.terms.length - 1];
-                        return currentTerm.state === state;
-                    });
-                    
-                    console.log(`Found ${stateReps.length} legislators for state ${state}`);
-                    
-                    // Add senators
-                    stateReps.forEach(rep => {
-                        const currentTerm = rep.terms[rep.terms.length - 1];
-                        if (currentTerm.type === 'sen') {
-                            representatives.push({
-                                name: rep.name.official_full,
-                                type: 'Senator',
-                                party: currentTerm.party === 'Democrat' ? 'Democrat' : currentTerm.party,
-                                state: currentTerm.state,
-                                district: null,
-                                phone: currentTerm.phone || 'Not available',
-                                website: currentTerm.url || 'Not available',
-                                office: currentTerm.office || 'Senate Office Building, Washington, DC',
-                                bioguideId: rep.id.bioguide,
-                                fecId: rep.id.fec ? rep.id.fec[0] : null
-                            });
-                        }
-                    });
-                    
-                    // Try to find the most likely House representative
-                    const houseReps = stateReps.filter(r => r.terms[r.terms.length - 1].type === 'rep');
-                    
-                    if (houseReps.length > 0) {
-                        // For CA ZIP 94903 (San Rafael), it's likely District 2 or 4
-                        if (state === 'CA' && address.includes('94903')) {
-                            // Districts 2 and 4 cover Marin County
-                            const marinReps = houseReps.filter(r => 
-                                [2, 4].includes(r.terms[r.terms.length - 1].district)
-                            );
-                            
-                            if (marinReps.length > 0) {
-                                // Add the most likely representative (District 2 - Jared Huffman)
-                                const likelyRep = marinReps.find(r => 
-                                    r.terms[r.terms.length - 1].district === 2
-                                ) || marinReps[0];
-                                
-                                const currentTerm = likelyRep.terms[likelyRep.terms.length - 1];
-                                representatives.push({
-                                    name: likelyRep.name.official_full,
-                                    type: 'Representative',
-                                    party: currentTerm.party === 'Democrat' ? 'Democrat' : currentTerm.party,
-                                    state: currentTerm.state,
-                                    district: currentTerm.district,
-                                    phone: currentTerm.phone || 'Not available',
-                                    website: currentTerm.url || 'Not available',
-                                    office: currentTerm.office || 'House Office Building, Washington, DC',
-                                    bioguideId: likelyRep.id.bioguide,
-                                    fecId: likelyRep.id.fec ? likelyRep.id.fec[0] : null,
-                                    note: 'District assignment based on ZIP code. For exact confirmation, enable Google Civic API.'
-                                });
-                            }
-                        } else if (state === 'CA') {
-                            // Northern California ZIP codes typically start with 94, 95, 96
-                            const zipMatch = address.match(/\b(\d{5})\b/);
-                            if (zipMatch) {
-                                const zipPrefix = zipMatch[1].substring(0, 2);
-                                
-                                // This is a rough approximation
-                                let likelyDistricts = [];
-                                if (zipPrefix === '94') {
-                                    // Bay Area districts
-                                    likelyDistricts = [2, 4, 5, 7, 10, 11, 12, 13, 14, 15, 17, 18];
-                                } else if (zipPrefix === '90' || zipPrefix === '91') {
-                                    // LA area districts
-                                    likelyDistricts = [25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 43, 44, 45, 46, 47];
-                                } else if (zipPrefix === '92') {
-                                    // San Diego area districts
-                                    likelyDistricts = [48, 49, 50, 51, 52];
-                                }
-                                
-                                // Find a representative from likely districts
-                                const localRep = houseReps.find(r => 
-                                    likelyDistricts.includes(r.terms[r.terms.length - 1].district)
-                                );
-                                
-                                if (localRep) {
-                                    const currentTerm = localRep.terms[localRep.terms.length - 1];
-                                    representatives.push({
-                                        name: localRep.name.official_full,
-                                        type: 'Representative',
-                                        party: currentTerm.party === 'Democrat' ? 'Democrat' : currentTerm.party,
-                                        state: currentTerm.state,
-                                        district: currentTerm.district,
-                                        phone: currentTerm.phone || 'Not available',
-                                        website: currentTerm.url || 'Not available',
-                                        office: currentTerm.office || 'House Office Building, Washington, DC',
-                                        bioguideId: localRep.id.bioguide,
-                                        fecId: localRep.id.fec ? localRep.id.fec[0] : null,
-                                        note: 'District assignment based on ZIP code approximation. For exact district, please use Google Civic API.'
-                                    });
-                                } else {
-                                    // Show first House rep as placeholder
-                                    const firstRep = houseReps[0];
-                                    const currentTerm = firstRep.terms[firstRep.terms.length - 1];
-                                    representatives.push({
-                                        name: firstRep.name.official_full,
-                                        type: 'Representative',
-                                        party: currentTerm.party === 'Democrat' ? 'Democrat' : currentTerm.party,
-                                        state: currentTerm.state,
-                                        district: currentTerm.district,
-                                        phone: currentTerm.phone || 'Not available',
-                                        website: currentTerm.url || 'Not available',
-                                        office: currentTerm.office || 'House Office Building, Washington, DC',
-                                        bioguideId: firstRep.id.bioguide,
-                                        fecId: firstRep.id.fec ? firstRep.id.fec[0] : null,
-                                        note: 'This may not be your exact representative. Enable Google Civic API for accurate district mapping.'
-                                    });
-                                }
-                            }
-                        } else {
-                            // For other states, just show the first House rep
-                            const firstRep = houseReps[0];
-                            const currentTerm = firstRep.terms[firstRep.terms.length - 1];
-                            representatives.push({
-                                name: firstRep.name.official_full,
-                                type: 'Representative',
-                                party: currentTerm.party === 'Democrat' ? 'Democrat' : currentTerm.party,
-                                state: currentTerm.state,
-                                district: currentTerm.district,
-                                phone: currentTerm.phone || 'Not available',
-                                website: currentTerm.url || 'Not available',
-                                office: currentTerm.office || 'House Office Building, Washington, DC',
-                                bioguideId: firstRep.id.bioguide,
-                                fecId: firstRep.id.fec ? firstRep.id.fec[0] : null,
-                                note: 'District assignment may not be exact. Enable Google Civic API for accurate mapping.'
-                            });
-                        }
-                    }
-                }
-            } catch (fallbackError) {
-                console.error('Fallback error:', fallbackError);
-                // Return at least some data
-                representatives.push({
-                    name: 'Representatives Unavailable',
-                    type: 'Error',
-                    party: 'Unknown',
-                    state: state,
-                    district: 'Unknown',
-                    phone: 'Please try again later',
-                    website: 'https://www.house.gov/representatives',
-                    office: 'Data temporarily unavailable',
-                    note: 'Unable to load representative data. Please try again.'
-                });
-            }
-        }
-        
-        // Ensure we always return something
-        if (representatives.length === 0) {
-            // At minimum, return a message to the user
-            representatives.push({
-                name: 'Unable to load representatives',
-                type: 'Error',
-                party: 'N/A',
-                state: getStateFromAddress(address),
-                district: 'N/A',
-                phone: 'Please try again',
-                website: 'https://www.house.gov/representatives/find-your-representative',
-                office: 'Data temporarily unavailable',
-                note: 'The congressional data service is temporarily unavailable. Please try again in a few moments or use the House.gov lookup tool.'
-            });
-        }
-        
-        console.log(`Returning ${representatives.length} representatives for ${address}`);
-        
-        // Cache the results
-        cache.set(cacheKey, {
-            data: representatives,
-            timestamp: Date.now()
-        });
-        
-        return representatives;
-        
-    } catch (error) {
-        console.error('Error fetching representatives:', error);
-        throw error;
-    }
-}
-
-// Helper function to extract state from address
-function getStateFromAddress(address) {
-    // Simple regex to find state abbreviation
-    const stateMatch = address.match(/\b([A-Z]{2})\b(?:\s+\d{5})?$/);
-    return stateMatch ? stateMatch[1] : 'CA'; // Default to CA
-}
-
-// Helper function to format address
-function formatAddress(addr) {
-    if (!addr) return 'Capitol Building, Washington, DC';
-    return `${addr.line1}${addr.line2 ? ', ' + addr.line2 : ''}, ${addr.city}, ${addr.state} ${addr.zip}`;
-}
-
-// API Routes
-app.get('/api/representatives', async (req, res) => {
-    const address = req.query.address;
-    
-    if (!address) {
-        return res.status(400).json({
-            error: 'Address parameter is required'
-        });
-    }
-    
-    try {
-        const representatives = await getRepresentativesByAddress(address);
-        console.log(`Found ${representatives.length} representatives for address: ${address}`);
-        res.json({ representatives });
-    } catch (error) {
-        console.error('API Error:', error);
-        res.status(500).json({
-            error: 'Unable to fetch representatives',
-            message: 'Please check your address and try again'
-        });
-    }
-});
-
-// Get congressional statements and speeches with REAL data
-async function getTranscripts(legislator) {
-    const transcripts = [];
-    
-    try {
-        // Get the representative's name for searching
-        const searchName = legislator.name.split(' ').slice(-1)[0]; // Last name
-        
-        // Search Congressional Record for recent speeches
-        const sixMonthsAgo = new Date();
-        sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-        const fromDate = sixMonthsAgo.toISOString().split('T')[0];
-        const toDate = new Date().toISOString().split('T')[0];
-        
-        // ProPublica statements endpoint
-        if (CONFIG.PROPUBLICA_API_KEY) {
-            try {
-                const statementsUrl = `https://api.propublica.org/congress/v1/statements/search.json?query=${encodeURIComponent(legislator.name)}`;
-                
-                const response = await fetch(statementsUrl, {
-                    headers: {
-                        'X-API-Key': CONFIG.PROPUBLICA_API_KEY
-                    }
-                });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    
-                    if (data.results && data.results.length > 0) {
-                        data.results.slice(0, 10).forEach(statement => {
-                            transcripts.push({
-                                title: statement.title || 'Congressional Statement',
-                                date: statement.date,
-                                type: statement.statement_type || 'Statement',
-                                url: statement.url,
-                                subject: statement.subjects ? statement.subjects[0] : 'Congressional Business',
-                                excerpt: statement.title || 'View full statement',
-                                source: 'ProPublica'
-                            });
-                        });
-                    }
-                }
-            } catch (err) {
-                console.error('ProPublica error:', err);
-            }
-        }
-        
-        // Add direct Congressional Record search
-        transcripts.push({
-            title: `Search Congressional Record for ${legislator.name}`,
-            date: `${fromDate} to ${toDate}`,
-            type: 'Search Tool',
-            url: `https://www.congress.gov/search?q={"source":"congrecord","search":"${encodeURIComponent(legislator.name)}","congress":["119","118"]}`,
-            subject: 'All Floor Speeches',
-            excerpt: 'Search all floor speeches and statements in the Congressional Record',
-            source: 'Congress.gov'
-        });
-        
-        // Add committee hearing search
-        transcripts.push({
-            title: 'Committee Hearing Transcripts',
-            date: 'Recent',
-            type: 'Hearings',
-            url: `https://www.congress.gov/search?q={"source":"comreports,congrecord,committee","search":"${encodeURIComponent(legislator.name)}"}`,
-            subject: 'Committee Work',
-            excerpt: 'Search committee hearings and reports featuring this representative',
-            source: 'Congress.gov'
-        });
-        
-        // C-SPAN with specific bioguide ID
-        if (legislator.bioguideId) {
-            transcripts.push({
-                title: `${legislator.name}'s C-SPAN Video Archive`,
-                date: 'All dates',
-                type: 'Video Archive',
-                url: `https://www.c-span.org/person/?${legislator.bioguideId.toLowerCase()}`,
-                subject: 'Video & Transcripts',
-                excerpt: 'Watch videos and read transcripts of speeches, interviews, and appearances',
-                source: 'C-SPAN'
-            });
-        }
-        
-        // Official press releases
-        if (legislator.website) {
-            transcripts.push({
-                title: 'Official Press Releases & Statements',
-                date: 'Latest',
-                type: 'Press Releases',
-                url: legislator.website.replace(/\/$/, '') + '/news',
-                subject: 'Official Statements',
-                excerpt: 'Read official press releases and statements from the representative\'s office',
-                source: 'Official Website'
-            });
-        }
-        
-    } catch (error) {
-        console.error('Error fetching transcripts:', error);
-    }
-    
-    return transcripts;
-}
-
-// Get voting record with REAL votes
-async function getVotingRecord(legislator) {
-    const votes = {};
-    
-    try {
-        if (CONFIG.PROPUBLICA_API_KEY) {
-            const votesUrl = `https://api.propublica.org/congress/v1/members/${legislator.bioguideId}/votes.json`;
-            
-            const response = await fetch(votesUrl, {
-                headers: {
-                    'X-API-Key': CONFIG.PROPUBLICA_API_KEY
-                }
-            });
-            
-            if (response.ok) {
+                const response = await fetch(`/api/voting-record/${rep.bioguideId}`);
                 const data = await response.json();
                 
-                if (data.results && data.results[0] && data.results[0].votes) {
-                    // Group by bill topic/committee
-                    data.results[0].votes.slice(0, 50).forEach(vote => {
-                        // Determine topic based on vote question or bill
-                        let topic = 'Other Votes';
-                        const question = (vote.question || '').toLowerCase();
-                        const description = (vote.description || '').toLowerCase();
-                        const billTitle = vote.bill ? (vote.bill.title || '').toLowerCase() : '';
-                        
-                        // Categorize by topic
-                        if (question.includes('defense') || billTitle.includes('defense') || billTitle.includes('military')) {
-                            topic = 'Defense & Military';
-                        } else if (question.includes('health') || billTitle.includes('health') || billTitle.includes('medicare')) {
-                            topic = 'Healthcare';
-                        } else if (question.includes('tax') || billTitle.includes('tax') || question.includes('budget')) {
-                            topic = 'Budget & Taxes';
-                        } else if (question.includes('environment') || billTitle.includes('climate') || billTitle.includes('energy')) {
-                            topic = 'Environment & Energy';
-                        } else if (question.includes('education') || billTitle.includes('education') || billTitle.includes('student')) {
-                            topic = 'Education';
-                        } else if (question.includes('immigration') || billTitle.includes('immigration') || billTitle.includes('border')) {
-                            topic = 'Immigration';
-                        } else if (question.includes('infrastructure') || billTitle.includes('infrastructure') || billTitle.includes('transportation')) {
-                            topic = 'Infrastructure';
-                        } else if (question.includes('nomination')) {
-                            topic = 'Nominations';
-                        } else if (question.includes('procedure') || question.includes('motion') || question.includes('cloture')) {
-                            topic = 'Procedural Votes';
-                        }
-                        
-                        if (!votes[topic]) {
-                            votes[topic] = [];
-                        }
-                        
-                        votes[topic].push({
-                            bill: vote.bill ? `${vote.bill.bill_id}: ${vote.bill.title || vote.question}` : vote.question,
-                            date: vote.date,
-                            position: vote.position || 'Not Voting',
-                            result: vote.result,
-                            description: vote.description || vote.question,
-                            question: vote.question,
-                            rollCall: vote.roll_call,
-                            congress: vote.congress,
-                            session: vote.session,
-                            voteUrl: `https://www.congress.gov/roll-call-vote/${vote.congress}/${vote.session}/${vote.chamber}/${vote.roll_call}`
-                        });
-                    });
+                let html = `<h3>${rep.name}'s Recent Voting Record</h3>`;
+                
+                if (data.grouped && Object.keys(data.grouped).length > 0) {
+                    html += '<p style="color: #666; margin-bottom: 20px;">Click on a topic to see individual votes</p>';
                     
-                    return { grouped: votes, raw: data.results[0].votes };
+                    // Display votes grouped by topic
+                    Object.entries(data.grouped).forEach(([topic, votes]) => {
+                        html += `
+                            <div class="vote-topic" onclick="toggleVotes('${topic.replace(/'/g, '')}')">
+                                <h4 style="cursor: pointer; color: #1e3a8a;">
+                                    ▶ ${topic} (${votes.length} votes)
+                                </h4>
+                                <div id="votes-${topic.replace(/[^a-zA-Z0-9]/g, '')}" style="display: none; margin-left: 20px;">
+                        `;
+                        
+                        votes.forEach(vote => {
+                            const voteClass = vote.position === 'Yes' ? 'vote-yes' : 
+                                            vote.position === 'No' ? 'vote-no' : 'vote-present';
+                            html += `
+                                <div class="vote-item">
+                                    <h5>${vote.bill}</h5>
+                                    <p>${vote.description}</p>
+                                    <p style="color: #666; font-size: 14px;">
+                                        Date: ${vote.date} | Result: ${vote.result || 'Pending'}
+                                    </p>
+                                    <span class="vote-result ${voteClass}">
+                                        ${rep.name} voted: ${vote.position}
+                                    </span>
+                                    ${vote.voteUrl ? `
+                                        <a href="${vote.voteUrl}" target="_blank" 
+                                           style="display: inline-block; margin-top: 10px; color: #3b82f6; font-size: 14px;">
+                                            View Roll Call Vote →
+                                        </a>
+                                    ` : ''}
+                                </div>
+                            `;
+                        });
+                        
+                        html += '</div></div>';
+                    });
+                } else {
+                    html += `
+                        <p>Voting record data requires a ProPublica API key.</p>
+                        <p>In the meantime, you can view ${rep.name}'s voting record at:</p>
+                        <p><a href="https://www.congress.gov/member/${rep.name.toLowerCase().replace(/ /g, '-')}" 
+                              target="_blank" style="color: #3b82f6;">Congress.gov Profile →</a></p>
+                    `;
                 }
+                
+                document.getElementById('modal-body').innerHTML = html;
+            } catch (error) {
+                document.getElementById('modal-body').innerHTML = `
+                    <h3>${rep.name}'s Voting Record</h3>
+                    <p>Unable to load voting record at this time.</p>
+                `;
             }
         }
-        
-        // Fallback - provide direct link to voting record
-        return {
-            grouped: {
-                'Voting Record': [{
-                    bill: 'ProPublica API key required',
-                    date: new Date().toISOString().split('T')[0],
-                    position: 'Unknown',
-                    description: `View ${legislator.name}'s voting record on Congress.gov`,
-                    voteUrl: `https://www.congress.gov/member/${legislator.name.toLowerCase().replace(/ /g, '-')}/${legislator.bioguideId}`
-                }]
-            },
-            raw: []
-        };
-        
-    } catch (error) {
-        console.error('Error fetching voting record:', error);
-        return { grouped: {}, raw: [] };
-    }
-}
 
-// Get REAL calendar events
-async function getCalendarEvents(legislator) {
-    const events = [];
-    
-    try {
-        // Committee schedules - would need Congress.gov API
-        events.push({
-            title: 'View Committee Schedule',
-            date: 'Updated Daily',
-            type: 'Committees',
-            location: 'Various',
-            url: 'https://www.congress.gov/committees/schedule',
-            description: 'See all upcoming committee hearings and markups'
-        });
-        
-        // House/Senate calendar
-        const chamber = legislator.type === 'Senator' ? 'senate' : 'house';
-        events.push({
-            title: `${chamber === 'senate' ? 'Senate' : 'House'} Floor Schedule`,
-            date: 'This Week',
-            type: 'Floor Activity',
-            location: 'Capitol Building',
-            url: `https://www.${chamber}.gov/legislative-activity`,
-            description: `View this week's ${chamber} floor schedule and votes`
-        });
-        
-        // Town halls - these are usually on their website
-        if (legislator.website) {
-            events.push({
-                title: 'Town Halls & Local Events',
-                date: 'Check Website',
-                type: 'Public Events',
-                location: 'District Offices',
-                url: legislator.website + '/events',
-                description: 'Find upcoming town halls and public meetings in your area'
-            });
-        }
-        
-        // Add social media for real-time updates
-        events.push({
-            title: 'Real-Time Updates',
-            date: 'Follow for Latest',
-            type: 'Social Media',
-            location: 'Online',
-            url: `https://twitter.com/search?q=${encodeURIComponent(legislator.name)}&f=user`,
-            description: 'Representatives often announce events on social media'
-        });
-        
-    } catch (error) {
-        console.error('Error fetching calendar:', error);
-    }
-    
-    return events;
-}
-
-// Enhanced campaign finance with real FEC data
-async function getCampaignFinanceDetailed(legislator) {
-    try {
-        // Try multiple search strategies
-        let candidateId = null;
-        
-        // First try with FEC ID if available
-        if (legislator.fecId) {
-            candidateId = legislator.fecId;
-        } else {
-            // Search by name
-            const searchUrl = `https://api.open.fec.gov/v1/names/candidates/?q=${encodeURIComponent(legislator.name)}&api_key=${CONFIG.FEC_API_KEY}`;
-            const searchResponse = await fetch(searchUrl);
+        async function showCampaignFinance(index) {
+            const rep = currentRepresentatives[index];
+            showModal('Campaign Finance', `
+                <h3>${rep.name}'s Campaign Finance</h3>
+                <div class="loading"><div class="loading-spinner"></div><p>Loading campaign finance data...</p></div>
+            `);
             
-            if (searchResponse.ok) {
-                const searchData = await searchResponse.json();
-                if (searchData.results && searchData.results.length > 0) {
-                    candidateId = searchData.results[0].id;
-                }
-            }
-        }
-        
-        if (!candidateId) {
-            return {
-                summary: {
-                    totalRaised: 'Data not available',
-                    totalSpent: 'Data not available',
-                    cashOnHand: 'Data not available',
-                    lastReport: 'Data not available'
-                },
-                sources: [],
-                topContributors: []
-            };
-        }
-        
-        // Get financial summary
-        const financeUrl = `https://api.open.fec.gov/v1/candidates/${candidateId}/totals/?api_key=${CONFIG.FEC_API_KEY}&cycle=2024`;
-        const financeResponse = await fetch(financeUrl);
-        
-        if (!financeResponse.ok) {
-            throw new Error('FEC API error');
-        }
-        
-        const financeData = await financeResponse.json();
-        
-        if (financeData.results && financeData.results.length > 0) {
-            const finances = financeData.results[0];
-            
-            // Get top contributors
-            const contributorsUrl = `https://api.open.fec.gov/v1/schedules/schedule_a/by_size/by_candidate/?cycle=2024&candidate_id=${candidateId}&api_key=${CONFIG.FEC_API_KEY}&per_page=10`;
-            const contribResponse = await fetch(contributorsUrl);
-            
-            let topContributors = [];
-            if (contribResponse.ok) {
-                const contribData = await contribResponse.json();
-                if (contribData.results) {
-                    topContributors = contribData.results.map(c => ({
-                        size: c.size,
-                        count: c.count,
-                        total: `${c.total.toLocaleString()}`
-                    }));
-                }
-            }
-            
-            return {
-                summary: {
-                    totalRaised: `${(finances.receipts || 0).toLocaleString()}`,
-                    totalSpent: `${(finances.disbursements || 0).toLocaleString()}`,
-                    cashOnHand: `${(finances.cash_on_hand_end_period || 0).toLocaleString()}`,
-                    lastReport: finances.coverage_end_date || 'Not available',
-                    debtOwed: `${(finances.debts_owed_by_committee || 0).toLocaleString()}`
-                },
-                sources: [
-                    {
-                        name: 'Individual Contributions',
-                        amount: `${(finances.individual_contributions || 0).toLocaleString()}`,
-                        percentage: finances.receipts ? Math.round((finances.individual_contributions / finances.receipts) * 100) : 0
-                    },
-                    {
-                        name: 'PAC Contributions',
-                        amount: `${(finances.other_political_committee_contributions || 0).toLocaleString()}`,
-                        percentage: finances.receipts ? Math.round((finances.other_political_committee_contributions / finances.receipts) * 100) : 0
-                    },
-                    {
-                        name: 'Party Contributions',
-                        amount: `${(finances.party_committee_contributions || 0).toLocaleString()}`,
-                        percentage: finances.receipts ? Math.round((finances.party_committee_contributions / finances.receipts) * 100) : 0
-                    },
-                    {
-                        name: 'Candidate Self-Funding',
-                        amount: `${(finances.candidate_contribution || 0).toLocaleString()}`,
-                        percentage: finances.receipts ? Math.round((finances.candidate_contribution / finances.receipts) * 100) : 0
+            try {
+                const response = await fetch(`/api/campaign-finance/${rep.fecId || rep.name}`);
+                const data = await response.json();
+                
+                let html = `<h3>${rep.name}'s Campaign Finance (2024 Cycle)</h3>`;
+                
+                if (data.summary && data.summary.totalRaised !== 'Data not available') {
+                    html += `
+                        <div class="funding-item" style="background: #f0f9ff; border-left: 4px solid #3b82f6;">
+                            <h4>Financial Summary</h4>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 10px;">
+                                <div>
+                                    <p style="color: #666; margin: 0;">Total Raised</p>
+                                    <p style="font-size: 1.5em; font-weight: bold; color: #1e3a8a; margin: 5px 0;">
+                                        ${data.summary.totalRaised}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p style="color: #666; margin: 0;">Total Spent</p>
+                                    <p style="font-size: 1.5em; font-weight: bold; color: #dc2626; margin: 5px 0;">
+                                        ${data.summary.totalSpent}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p style="color: #666; margin: 0;">Cash on Hand</p>
+                                    <p style="font-size: 1.5em; font-weight: bold; color: #059669; margin: 5px 0;">
+                                        ${data.summary.cashOnHand}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p style="color: #666; margin: 0;">Debt Owed</p>
+                                    <p style="font-size: 1.5em; font-weight: bold; color: #ef4444; margin: 5px 0;">
+                                        ${data.summary.debtOwed || '$0'}
+                                    </p>
+                                </div>
+                            </div>
+                            <p style="color: #666; font-size: 14px; margin-top: 15px;">
+                                Last Report: ${data.summary.lastReport}
+                            </p>
+                        </div>
+                    `;
+                    
+                    if (data.sources && data.sources.length > 0) {
+                        html += '<h4 style="margin-top: 20px;">Funding Sources</h4>';
+                        data.sources.forEach(source => {
+                            html += `
+                                <div class="funding-item">
+                                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                        <span style="font-weight: 600;">${source.name}</span>
+                                        <span style="font-weight: 600;">${source.amount}</span>
+                                    </div>
+                                    <div style="background: #e0e0e0; border-radius: 10px; height: 25px; overflow: hidden;">
+                                        <div style="background: linear-gradient(135deg, #3b82f6 0%, #1e3a8a 100%); 
+                                                    height: 100%; width: ${source.percentage}%; 
+                                                    border-radius: 10px; transition: width 1s ease;">
+                                        </div>
+                                    </div>
+                                    <p style="color: #666; font-size: 14px; margin-top: 5px;">
+                                        ${source.percentage}% of total contributions
+                                    </p>
+                                </div>
+                            `;
+                        });
                     }
-                ].filter(s => s.percentage > 0),
-                topContributors: topContributors
-            };
+                    
+                    html += `
+                        <p style="margin-top: 20px; padding: 15px; background: #f3f4f6; border-radius: 10px;">
+                            <strong>Note:</strong> Data from Federal Election Commission. 
+                            <a href="https://www.fec.gov/data/candidate/${rep.fecId}/" 
+                               target="_blank" style="color: #3b82f6;">View full FEC report →</a>
+                        </p>
+                    `;
+                } else {
+                    html += `
+                        <div class="error-message" style="background: #fef3c7; color: #92400e; border-left-color: #f59e0b;">
+                            <h4>Campaign Finance Data Unavailable</h4>
+                            <p>This could be because:</p>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                <li>The FEC API is rate-limited (DEMO_KEY has strict limits)</li>
+                                <li>The representative's FEC ID couldn't be matched</li>
+                                <li>No recent campaign finance reports have been filed</li>
+                            </ul>
+                            <p>Try searching directly on the FEC website:</p>
+                            <a href="https://www.fec.gov/data/receipts/?two_year_transaction_period=2024&data_type=processed&committee_id=&contributor_name=${encodeURIComponent(rep.name)}" 
+                               target="_blank" style="color: #3b82f6;">Search FEC Database →</a>
+                        </div>
+                    `;
+                }
+                
+                document.getElementById('modal-body').innerHTML = html;
+            } catch (error) {
+                document.getElementById('modal-body').innerHTML = `
+                    <h3>${rep.name}'s Campaign Finance</h3>
+                    <p>Unable to load campaign finance data at this time.</p>
+                `;
+            }
+        }
+
+        async function showCalendar(index) {
+            const rep = currentRepresentatives[index];
+            showModal('Public Calendar & Events', `
+                <h3>${rep.name}'s Schedule & Events</h3>
+                <div class="loading"><div class="loading-spinner"></div><p>Loading calendar information...</p></div>
+            `);
+            
+            try {
+                const response = await fetch(`/api/calendar/${rep.bioguideId}`);
+                const data = await response.json();
+                
+                let html = `<h3>${rep.name}'s Schedule & Events</h3>`;
+                html += '<p style="color: #666; margin-bottom: 20px;">Click any item to view schedules and events:</p>';
+                
+                if (data.events && data.events.length > 0) {
+                    data.events.forEach(event => {
+                        html += `
+                            <div class="event-item" style="cursor: pointer;" onclick="window.open('${event.url}', '_blank')">
+                                <div class="event-date" style="background: #3b82f6;">
+                                    ${event.type}
+                                </div>
+                                <div>
+                                    <h4 style="margin-bottom: 5px;">${event.title}</h4>
+                                    <p style="color: #666; margin: 0;">${event.description}</p>
+                                    <p style="color: #3b82f6; font-size: 14px; margin-top: 5px;">
+                                        Click to view →
+                                    </p>
+                                </div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    // Fallback if API fails
+                    const chamber = rep.type === 'Senator' ? 'senate' : 'house';
+                    html += `
+                        <div class="calendar-item">
+                            <h4>📅 Official Calendar</h4>
+                            <p>View the representative's official schedule:</p>
+                            <a href="${rep.website}" target="_blank" class="action-btn" style="display: inline-block; margin: 10px 0;">
+                                Visit Official Website →
+                            </a>
+                        </div>
+                        
+                        <div class="calendar-item">
+                            <h4>🏛️ ${chamber === 'senate' ? 'Senate' : 'House'} Schedule</h4>
+                            <a href="https://www.${chamber}.gov/legislative-activity" target="_blank" class="action-btn" style="display: inline-block; margin: 10px 0;">
+                                View Floor Schedule →
+                            </a>
+                        </div>
+                    `;
+                }
+                
+                html += `
+                    <div style="margin-top: 20px; padding: 15px; background: #f3f4f6; border-radius: 10px;">
+                        <strong>Tip:</strong> Call their office for upcoming town halls: 
+                        <span style="font-weight: bold;">${rep.phone}</span>
+                    </div>
+                `;
+                
+                document.getElementById('modal-body').innerHTML = html;
+            } catch (error) {
+                showCalendar_fallback(index);
+            }
         }
         
-        return {
-            summary: {
-                totalRaised: 'Data not available',
-                totalSpent: 'Data not available',
-                cashOnHand: 'Data not available',
-                lastReport: 'Data not available'
-            },
-            sources: [],
-            topContributors: []
-        };
-        
-    } catch (error) {
-        console.error('Campaign finance error:', error);
-        return {
-            summary: {
-                totalRaised: 'Data temporarily unavailable',
-                totalSpent: 'Data temporarily unavailable',
-                cashOnHand: 'Data temporarily unavailable',
-                lastReport: 'Check back later'
-            },
-            sources: [],
-            topContributors: []
-        };
-    }
-}
-
-// Voting record endpoint with real data
-app.get('/api/voting-record/:bioguideId', async (req, res) => {
-    const bioguideId = req.params.bioguideId;
-    
-    const mockLegislator = { bioguideId, name: 'Representative' };
-    const votingData = await getVotingRecord(mockLegislator);
-    
-    res.json(votingData);
-});
-
-// Enhanced campaign finance endpoint
-app.get('/api/campaign-finance/:identifier', async (req, res) => {
-    const identifier = req.params.identifier;
-    
-    // Try to find legislator info from identifier
-    const mockLegislator = {
-        name: identifier,
-        fecId: null
-    };
-    
-    const financeData = await getCampaignFinanceDetailed(mockLegislator);
-    res.json(financeData);
-});
-
-// New transcripts endpoint
-app.get('/api/transcripts/:bioguideId', async (req, res) => {
-    const bioguideId = req.params.bioguideId;
-    
-    // Get legislator name from cache or database
-    const mockLegislator = {
-        bioguideId,
-        name: 'Representative' // This would come from your data
-    };
-    
-    const transcripts = await getTranscripts(mockLegislator);
-    res.json({ transcripts });
-});
-
-// Health check
-app.get('/api/health', (req, res) => {
-    res.json({
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        apis: {
-            googleCivic: CONFIG.GOOGLE_CIVIC_API_KEY ? 'configured' : 'not configured',
-            fec: CONFIG.FEC_API_KEY !== 'DEMO_KEY' ? 'configured' : 'using demo key',
-            congress: CONFIG.CONGRESS_API_KEY ? 'configured' : 'not configured'
+        function showCalendar_fallback(index) {
+            const rep = currentRepresentatives[index];
+            const chamber = rep.type === 'Senator' ? 'senate' : 'house';
+            
+            document.getElementById('modal-body').innerHTML = `
+                <h3>${rep.name}'s Public Calendar</h3>
+                <div class="calendar-item">
+                    <h4>📅 View Schedules</h4>
+                    <a href="${rep.website}" target="_blank" class="action-btn" style="display: inline-block; margin: 10px 0;">
+                        Official Website →
+                    </a>
+                    <a href="https://www.${chamber}.gov/legislative-activity" target="_blank" class="action-btn" style="display: inline-block; margin: 10px 0;">
+                        ${chamber === 'senate' ? 'Senate' : 'House'} Calendar →
+                    </a>
+                </div>
+            `;
         }
-    });
-});
 
-// Serve HTML
-app.get('/', (req, res) => {
-    // Check both root and templates directory
-    const fs = require('fs');
-    const rootPath = path.join(__dirname, 'index.html');
-    const templatesPath = path.join(__dirname, 'templates', 'index.html');
-    
-    if (fs.existsSync(rootPath)) {
-        res.sendFile(rootPath);
-    } else if (fs.existsSync(templatesPath)) {
-        res.sendFile(templatesPath);
-    } else {
-        res.status(404).send('index.html not found');
-    }
-});
+        async function showTranscripts(index) {
+            const rep = currentRepresentatives[index];
+            showModal('Find Transcripts for Fact-Checking', `
+                <h3>Find ${rep.name}'s Transcripts</h3>
+                <div class="loading"><div class="loading-spinner"></div><p>Loading transcript sources...</p></div>
+            `);
+            
+            try {
+                const response = await fetch(`/api/transcripts/${rep.bioguideId}`);
+                const data = await response.json();
+                
+                let html = `
+                    <h3>Find ${rep.name}'s Transcripts</h3>
+                    <div style="background: #e0f2fe; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+                        <p style="margin: 0; color: #0369a1;">
+                            <strong>For Fact-Checking:</strong> Use these sources to find recent speeches and statements. 
+                            Once you find a transcript, you can copy it to check for accuracy.
+                        </p>
+                    </div>
+                `;
+                
+                if (data.transcripts && data.transcripts.length > 0) {
+                    // Group by priority
+                    const recentSources = data.transcripts.filter(t => 
+                        t.source === 'Rev.com' || t.source === 'Rev.com Search' || t.source === 'Google News'
+                    );
+                    const archiveSources = data.transcripts.filter(t => 
+                        !recentSources.includes(t)
+                    );
+                    
+                    // Recent speeches first
+                    if (recentSources.length > 0) {
+                        html += '<h4 style="color: #1e3a8a; margin-top: 20px;">🔴 Best Sources for Recent Speeches</h4>';
+                        recentSources.forEach(transcript => {
+                            html += createTranscriptCard(transcript, true);
+                        });
+                    }
+                    
+                    // Archive sources
+                    if (archiveSources.length > 0) {
+                        html += '<h4 style="color: #1e3a8a; margin-top: 25px;">📚 Additional Transcript Sources</h4>';
+                        archiveSources.forEach(transcript => {
+                            html += createTranscriptCard(transcript, false);
+                        });
+                    }
+                    
+                    html += `
+                        <div style="margin-top: 25px; padding: 20px; background: #f3f4f6; border-radius: 10px;">
+                            <h4 style="margin-top: 0;">💡 Tips for Finding Transcripts:</h4>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                <li><strong>Rev.com</strong> is best for recent campaign speeches and debates</li>
+                                <li><strong>C-SPAN</strong> often has closed captions you can copy</li>
+                                <li><strong>YouTube</strong> auto-captions can be downloaded as text</li>
+                                <li>Search for <em>"[name] transcript"</em> in Google News for recent speeches</li>
+                            </ul>
+                            <p style="margin-bottom: 0;">
+                                <strong>For fact-checking:</strong> Look for complete transcripts rather than excerpts, 
+                                and note the date and venue of the speech.
+                            </p>
+                        </div>
+                    `;
+                } else {
+                    html += `
+                        <p>Unable to load transcript sources. Try searching directly:</p>
+                        <ul>
+                            <li><a href="https://www.rev.com/blog/transcripts?s=${encodeURIComponent(rep.name)}" 
+                                   target="_blank" style="color: #3b82f6;">Rev.com Transcripts</a></li>
+                            <li><a href="https://www.c-span.org/search/?searchtype=All&query=${encodeURIComponent(rep.name)}" 
+                                   target="_blank" style="color: #3b82f6;">C-SPAN Videos</a></li>
+                        </ul>
+                    `;
+                }
+                
+                document.getElementById('modal-body').innerHTML = html;
+            } catch (error) {
+                document.getElementById('modal-body').innerHTML = `
+                    <h3>Find ${rep.name}'s Transcripts</h3>
+                    <p>Error loading sources. Try searching directly on:</p>
+                    <ul>
+                        <li><a href="https://www.rev.com/blog/transcript-category/political-transcripts" 
+                               target="_blank" style="color: #3b82f6;">Rev.com Political Transcripts</a></li>
+                    </ul>
+                `;
+            }
+        }
+        
+        function createTranscriptCard(transcript, isPriority) {
+            const bgColor = isPriority ? '#fef3c7' : '#f9fafb';
+            const borderColor = isPriority ? '#f59e0b' : '#3b82f6';
+            
+            return `
+                <div class="transcript-item" style="background: ${bgColor}; border-left-color: ${borderColor};">
+                    <h4 style="margin-bottom: 8px;">
+                        ${transcript.title}
+                        ${isPriority ? '<span style="color: #f59e0b; font-size: 14px;"> ⭐ Recommended</span>' : ''}
+                    </h4>
+                    <p style="color: #3b82f6; font-weight: 600; margin: 5px 0;">
+                        ${transcript.subject}
+                    </p>
+                    <p style="color: #666; margin: 8px 0; font-size: 14px;">
+                        ${transcript.excerpt}
+                    </p>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                        <span style="color: #666; font-size: 14px;">
+                            Source: ${transcript.source} • ${transcript.type}
+                        </span>
+                        <a href="${transcript.url}" target="_blank" 
+                           class="download-btn" style="background: #3b82f6;">
+                            Search for Transcripts →
+                        </a>
+                    </div>
+                </div>
+            `;
+        }
 
-// Start server
-app.listen(CONFIG.PORT, () => {
-    console.log(`Congressional Tracker`);
-    console.log(`===================`);
-    console.log(`Server running on port ${CONFIG.PORT}`);
-    console.log(`Visit http://localhost:${CONFIG.PORT}`);
-    console.log('\nAPI Status:');
-    console.log(`- Google Civic: ${CONFIG.GOOGLE_CIVIC_API_KEY ? '✓ Configured' : '✗ Not configured (limited accuracy)'}`);
-    console.log(`- FEC: ${CONFIG.FEC_API_KEY !== 'DEMO_KEY' ? '✓ Configured' : '⚠ Using DEMO_KEY'}`);
-    console.log(`- Congress.gov: ${CONFIG.CONGRESS_API_KEY ? '✓ Configured' : '✗ Not configured'}`);
-});
+        // Helper function to toggle vote details
+        window.toggleVotes = function(topic) {
+            const element = document.getElementById(`votes-${topic.replace(/[^a-zA-Z0-9]/g, '')}`);
+            const arrow = event.target;
+            if (element.style.display === 'none') {
+                element.style.display = 'block';
+                arrow.textContent = arrow.textContent.replace('▶', '▼');
+            } else {
+                element.style.display = 'none';
+                arrow.textContent = arrow.textContent.replace('▼', '▶');
+            }
+        }
+
+        function showContact(index) {
+            const rep = currentRepresentatives[index];
+            showModal('Contact Information', `
+                <h3>How to Contact ${rep.name}</h3>
+                <div class="contact-item">
+                    <h4>📞 Phone</h4>
+                    <p>${rep.phone || 'Not available'}</p>
+                </div>
+                <div class="contact-item">
+                    <h4>🏢 Office Address</h4>
+                    <p>${rep.office || 'Capitol Building, Washington, DC'}</p>
+                </div>
+                <div class="contact-item">
+                    <h4>🌐 Website</h4>
+                    <p><a href="${rep.website}" target="_blank" style="color: #3b82f6;">${rep.website}</a></p>
+                </div>
+                <div class="contact-item">
+                    <h4>✉️ Contact Form</h4>
+                    <p>Most representatives have contact forms on their official websites for constituents.</p>
+                </div>
+                <p style="margin-top: 20px; color: #666; font-size: 14px;">
+                    <strong>Tip:</strong> When contacting your representative, mention that you are a constituent 
+                    and include your full address to ensure your message receives proper attention.
+                </p>
+            `);
+        }
+
+        function showModal(title, content) {
+            document.getElementById('modal-body').innerHTML = content;
+            document.getElementById('modal').style.display = 'block';
+        }
+
+        function closeModal() {
+            document.getElementById('modal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('modal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+
+        // State input formatting
+        document.getElementById('state').addEventListener('input', function(e) {
+            e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2);
+        });
+
+        // ZIP code input formatting
+        document.getElementById('zipcode').addEventListener('input', function(e) {
+            e.target.value = e.target.value.replace(/[^\d]/g, '').slice(0, 5);
+        });
+    </script>
+</body>
+</html>
