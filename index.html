@@ -493,23 +493,45 @@
                 
                 let html = `<h3>${rep.name}'s Recent Voting Record</h3>`;
                 
-                if (data.votes && data.votes.length > 0) {
-                    data.votes.forEach(vote => {
-                        const voteClass = vote.position === 'Yes' ? 'vote-yes' : 
-                                        vote.position === 'No' ? 'vote-no' : 'vote-present';
+                if (data.grouped && Object.keys(data.grouped).length > 0) {
+                    html += '<p style="color: #666; margin-bottom: 20px;">Click on a topic to see individual votes</p>';
+                    
+                    // Display votes grouped by topic
+                    Object.entries(data.grouped).forEach(([topic, votes]) => {
                         html += `
-                            <div class="vote-item">
-                                <h4>${vote.bill.number} - ${vote.bill.title}</h4>
-                                <p>${vote.description}</p>
-                                <p style="color: #666; font-size: 14px;">Date: ${vote.date}</p>
-                                <span class="vote-result ${voteClass}">
-                                    Voted: ${vote.position}
-                                </span>
-                            </div>
+                            <div class="vote-topic" onclick="toggleVotes('${topic.replace(/'/g, '')}')">
+                                <h4 style="cursor: pointer; color: #1e3a8a;">
+                                    ▶ ${topic} (${votes.length} votes)
+                                </h4>
+                                <div id="votes-${topic.replace(/[^a-zA-Z0-9]/g, '')}" style="display: none; margin-left: 20px;">
                         `;
+                        
+                        votes.forEach(vote => {
+                            const voteClass = vote.position === 'Yes' ? 'vote-yes' : 
+                                            vote.position === 'No' ? 'vote-no' : 'vote-present';
+                            html += `
+                                <div class="vote-item">
+                                    <h5>${vote.bill}</h5>
+                                    <p>${vote.description}</p>
+                                    <p style="color: #666; font-size: 14px;">
+                                        Date: ${vote.date} | Result: ${vote.result || 'Pending'}
+                                    </p>
+                                    <span class="vote-result ${voteClass}">
+                                        ${rep.name} voted: ${vote.position}
+                                    </span>
+                                </div>
+                            `;
+                        });
+                        
+                        html += '</div></div>';
                     });
                 } else {
-                    html += '<p>Voting record data is currently unavailable. Please check back later.</p>';
+                    html += `
+                        <p>Voting record data requires a ProPublica API key.</p>
+                        <p>In the meantime, you can view ${rep.name}'s voting record at:</p>
+                        <p><a href="https://www.congress.gov/member/${rep.name.toLowerCase().replace(/ /g, '-')}" 
+                              target="_blank" style="color: #3b82f6;">Congress.gov Profile →</a></p>
+                    `;
                 }
                 
                 document.getElementById('modal-body').innerHTML = html;
@@ -532,31 +554,89 @@
                 const response = await fetch(`/api/campaign-finance/${rep.fecId || rep.name}`);
                 const data = await response.json();
                 
-                let html = `<h3>${rep.name}'s Campaign Finance</h3>`;
+                let html = `<h3>${rep.name}'s Campaign Finance (2024 Cycle)</h3>`;
                 
-                if (data.summary) {
+                if (data.summary && data.summary.totalRaised !== 'Data not available') {
                     html += `
-                        <div class="funding-item">
-                            <h4>Total Raised: ${data.summary.totalRaised}</h4>
-                            <p>Total Spent: ${data.summary.totalSpent}</p>
-                            <p>Cash on Hand: ${data.summary.cashOnHand}</p>
-                            <p style="color: #666; font-size: 14px;">Last Report: ${data.summary.lastReport}</p>
+                        <div class="funding-item" style="background: #f0f9ff; border-left: 4px solid #3b82f6;">
+                            <h4>Financial Summary</h4>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 10px;">
+                                <div>
+                                    <p style="color: #666; margin: 0;">Total Raised</p>
+                                    <p style="font-size: 1.5em; font-weight: bold; color: #1e3a8a; margin: 5px 0;">
+                                        ${data.summary.totalRaised}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p style="color: #666; margin: 0;">Total Spent</p>
+                                    <p style="font-size: 1.5em; font-weight: bold; color: #dc2626; margin: 5px 0;">
+                                        ${data.summary.totalSpent}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p style="color: #666; margin: 0;">Cash on Hand</p>
+                                    <p style="font-size: 1.5em; font-weight: bold; color: #059669; margin: 5px 0;">
+                                        ${data.summary.cashOnHand}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p style="color: #666; margin: 0;">Debt Owed</p>
+                                    <p style="font-size: 1.5em; font-weight: bold; color: #ef4444; margin: 5px 0;">
+                                        ${data.summary.debtOwed || '$0'}
+                                    </p>
+                                </div>
+                            </div>
+                            <p style="color: #666; font-size: 14px; margin-top: 15px;">
+                                Last Report: ${data.summary.lastReport}
+                            </p>
                         </div>
                     `;
-                }
-                
-                if (data.sources && data.sources.length > 0) {
-                    html += '<h4 style="margin-top: 20px;">Funding Sources:</h4>';
-                    data.sources.forEach(source => {
-                        html += `
-                            <div class="funding-item">
-                                <h4>${source.name}</h4>
-                                <p>Amount: ${source.amount} (${source.percentage}%)</p>
-                            </div>
-                        `;
-                    });
+                    
+                    if (data.sources && data.sources.length > 0) {
+                        html += '<h4 style="margin-top: 20px;">Funding Sources</h4>';
+                        data.sources.forEach(source => {
+                            html += `
+                                <div class="funding-item">
+                                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                        <span style="font-weight: 600;">${source.name}</span>
+                                        <span style="font-weight: 600;">${source.amount}</span>
+                                    </div>
+                                    <div style="background: #e0e0e0; border-radius: 10px; height: 25px; overflow: hidden;">
+                                        <div style="background: linear-gradient(135deg, #3b82f6 0%, #1e3a8a 100%); 
+                                                    height: 100%; width: ${source.percentage}%; 
+                                                    border-radius: 10px; transition: width 1s ease;">
+                                        </div>
+                                    </div>
+                                    <p style="color: #666; font-size: 14px; margin-top: 5px;">
+                                        ${source.percentage}% of total contributions
+                                    </p>
+                                </div>
+                            `;
+                        });
+                    }
+                    
+                    html += `
+                        <p style="margin-top: 20px; padding: 15px; background: #f3f4f6; border-radius: 10px;">
+                            <strong>Note:</strong> Data from Federal Election Commission. 
+                            <a href="https://www.fec.gov/data/candidate/${rep.fecId}/" 
+                               target="_blank" style="color: #3b82f6;">View full FEC report →</a>
+                        </p>
+                    `;
                 } else {
-                    html += '<p>Campaign finance data is currently unavailable.</p>';
+                    html += `
+                        <div class="error-message" style="background: #fef3c7; color: #92400e; border-left-color: #f59e0b;">
+                            <h4>Campaign Finance Data Unavailable</h4>
+                            <p>This could be because:</p>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                <li>The FEC API is rate-limited (DEMO_KEY has strict limits)</li>
+                                <li>The representative's FEC ID couldn't be matched</li>
+                                <li>No recent campaign finance reports have been filed</li>
+                            </ul>
+                            <p>Try searching directly on the FEC website:</p>
+                            <a href="https://www.fec.gov/data/receipts/?two_year_transaction_period=2024&data_type=processed&committee_id=&contributor_name=${encodeURIComponent(rep.name)}" 
+                               target="_blank" style="color: #3b82f6;">Search FEC Database →</a>
+                        </div>
+                    `;
                 }
                 
                 document.getElementById('modal-body').innerHTML = html;
@@ -570,30 +650,142 @@
 
         async function showCalendar(index) {
             const rep = currentRepresentatives[index];
-            showModal('Daily Calendar', `
+            const chamber = rep.type === 'Senator' ? 'senate' : 'house';
+            
+            showModal('Public Calendar & Events', `
                 <h3>${rep.name}'s Public Calendar</h3>
-                <p>Congressional calendars are typically available through:</p>
-                <ul>
-                    <li>Official congressional website</li>
-                    <li>Committee schedules on congress.gov</li>
-                    <li>Town hall announcements on representative's website</li>
-                </ul>
-                <p><a href="${rep.website}" target="_blank" style="color: #3b82f6;">Visit ${rep.name}'s Official Website →</a></p>
+                <div class="calendar-item">
+                    <h4>📅 Official Calendar</h4>
+                    <p>View the representative's official schedule and upcoming events:</p>
+                    <a href="${rep.website}" target="_blank" class="action-btn" style="display: inline-block; margin: 10px 0;">
+                        Visit Official Website →
+                    </a>
+                </div>
+                
+                <div class="calendar-item">
+                    <h4>🏛️ Congressional Schedule</h4>
+                    <p>View when Congress is in session:</p>
+                    <a href="https://www.${chamber}.gov/legislative/schedule" target="_blank" class="action-btn" style="display: inline-block; margin: 10px 0;">
+                        ${chamber === 'senate' ? 'Senate' : 'House'} Calendar →
+                    </a>
+                </div>
+                
+                <div class="calendar-item">
+                    <h4>🎤 Committee Hearings</h4>
+                    <p>Find committee schedules and hearings:</p>
+                    <a href="https://www.congress.gov/committees/schedule" target="_blank" class="action-btn" style="display: inline-block; margin: 10px 0;">
+                        Committee Schedule →
+                    </a>
+                </div>
+                
+                <div class="calendar-item">
+                    <h4>🏘️ Town Halls & Local Events</h4>
+                    <p>Town halls are typically announced on the representative's website and social media. 
+                       Check their official channels or call their local office:</p>
+                    <p style="font-weight: bold; margin-top: 10px;">${rep.phone}</p>
+                </div>
+                
+                <div style="margin-top: 20px; padding: 15px; background: #f3f4f6; border-radius: 10px;">
+                    <strong>Tip:</strong> Many representatives announce events on their social media. 
+                    Search for "${rep.name}" on Twitter/X or Facebook for the latest updates.
+                </div>
             `);
         }
 
         async function showTranscripts(index) {
             const rep = currentRepresentatives[index];
-            showModal('Transcripts', `
-                <h3>${rep.name}'s Public Speaking Transcripts</h3>
-                <p>Congressional transcripts are available from:</p>
-                <ul>
-                    <li><strong>Congressional Record:</strong> <a href="https://www.congress.gov/congressional-record" target="_blank" style="color: #3b82f6;">congress.gov/congressional-record</a></li>
-                    <li><strong>Committee Hearings:</strong> Available on relevant committee websites</li>
-                    <li><strong>C-SPAN:</strong> <a href="https://www.c-span.org/" target="_blank" style="color: #3b82f6;">c-span.org</a></li>
-                </ul>
-                <p>Search for "${rep.name}" on these platforms to find recent speeches and statements.</p>
+            showModal('Transcripts & Speeches', `
+                <h3>${rep.name}'s Recent Speeches & Statements</h3>
+                <div class="loading"><div class="loading-spinner"></div><p>Loading transcripts...</p></div>
             `);
+            
+            try {
+                const response = await fetch(`/api/transcripts/${rep.bioguideId}`);
+                const data = await response.json();
+                
+                let html = `<h3>${rep.name}'s Recent Speeches & Statements</h3>`;
+                
+                if (data.transcripts && data.transcripts.length > 0) {
+                    html += '<p style="color: #666; margin-bottom: 20px;">Recent public statements and speeches:</p>';
+                    
+                    data.transcripts.forEach(transcript => {
+                        const icon = transcript.type === 'Video/Transcript' ? '📺' : 
+                                    transcript.type === 'Press Release' ? '📰' : 
+                                    transcript.type === 'Official Record' ? '📋' : '📄';
+                        
+                        html += `
+                            <div class="transcript-item">
+                                <div style="display: flex; align-items: start; gap: 15px;">
+                                    <span style="font-size: 24px;">${icon}</span>
+                                    <div style="flex: 1;">
+                                        <h4>${transcript.title}</h4>
+                                        <p style="color: #3b82f6; font-weight: 600; margin: 5px 0;">
+                                            ${transcript.subject}
+                                        </p>
+                                        <p style="color: #666; margin: 10px 0;">${transcript.excerpt}</p>
+                                        <p style="color: #666; font-size: 14px;">
+                                            ${transcript.type} • ${transcript.date}
+                                        </p>
+                                        <a href="${transcript.url}" target="_blank" class="download-btn" style="margin-top: 10px;">
+                                            View ${transcript.type} →
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += `
+                        <div style="margin-top: 20px; padding: 15px; background: #f3f4f6; border-radius: 10px;">
+                            <strong>Additional Resources:</strong>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                <li><a href="https://www.c-span.org/person/?${rep.bioguideId}" target="_blank" style="color: #3b82f6;">
+                                    Full C-SPAN Video Archive</a></li>
+                                <li><a href="https://www.congress.gov/member/${rep.name.toLowerCase().replace(/ /g, '-')}" target="_blank" style="color: #3b82f6;">
+                                    Congressional Profile & Floor Statements</a></li>
+                            </ul>
+                        </div>
+                    `;
+                } else {
+                    html += `
+                        <p>Unable to load recent transcripts. You can access transcripts at:</p>
+                        <ul style="margin: 20px 0; padding-left: 20px;">
+                            <li><strong>C-SPAN:</strong> 
+                                <a href="https://www.c-span.org/person/?${rep.bioguideId}" 
+                                   target="_blank" style="color: #3b82f6;">View Videos & Transcripts →</a>
+                            </li>
+                            <li><strong>Congressional Record:</strong> 
+                                <a href="https://www.congress.gov/search?q={%22source%22:%22congrecord%22,%22search%22:%22${encodeURIComponent(rep.name)}%22}" 
+                                   target="_blank" style="color: #3b82f6;">Search Official Record →</a>
+                            </li>
+                            <li><strong>Official Website:</strong> 
+                                <a href="${rep.website}" target="_blank" style="color: #3b82f6;">
+                                    Press Releases & Statements →</a>
+                            </li>
+                        </ul>
+                    `;
+                }
+                
+                document.getElementById('modal-body').innerHTML = html;
+            } catch (error) {
+                document.getElementById('modal-body').innerHTML = `
+                    <h3>${rep.name}'s Transcripts</h3>
+                    <p>Unable to load transcripts at this time.</p>
+                `;
+            }
+        }
+
+        // Helper function to toggle vote details
+        window.toggleVotes = function(topic) {
+            const element = document.getElementById(`votes-${topic.replace(/[^a-zA-Z0-9]/g, '')}`);
+            const arrow = event.target;
+            if (element.style.display === 'none') {
+                element.style.display = 'block';
+                arrow.textContent = arrow.textContent.replace('▶', '▼');
+            } else {
+                element.style.display = 'none';
+                arrow.textContent = arrow.textContent.replace('▼', '▶');
+            }
         }
 
         function showContact(index) {
