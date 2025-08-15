@@ -2,462 +2,314 @@ const express = require('express');
 const path = require('path');
 const app = express();
 
+// Middleware
+app.use(express.static('.'));
+app.use(express.json());
+
 // Configuration
 const CONFIG = {
     PORT: process.env.PORT || 3000,
-    CACHE_DURATION: 60 * 60 * 1000, // 1 hour
-    API_TIMEOUT: 10000, // 10 seconds
+    GOOGLE_CIVIC_API_KEY: process.env.GOOGLE_CIVIC_API_KEY || null,
     FEC_API_KEY: process.env.FEC_API_KEY || 'DEMO_KEY',
-    CONGRESS_API_KEY: process.env.CONGRESS_API_KEY || null,
-    GOOGLE_CIVIC_API_KEY: process.env.GOOGLE_CIVIC_API_KEY || null
+    CONGRESS_API_KEY: process.env.CONGRESS_API_KEY || null
 };
 
-// Middleware
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json());
+// Cache for API responses
+const cache = new Map();
+const CACHE_DURATION = 60 * 60 * 1000; // 1 hour
 
-// Services
-class CongressionalDataService {
-    constructor() {
-        this.cache = new Map();
-        this.legislators = null;
-        this.lastLegislatorUpdate = 0;
+// Get representatives by address using Google Civic API
+async function getRepresentativesByAddress(address) {
+    // Check cache first
+    const cacheKey = `reps-${address}`;
+    const cached = cache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+        return cached.data;
     }
 
-    // Fetch and cache legislator data
-    async getLegislators() {
-        const now = Date.now();
-        // Refresh legislator data every 24 hours
-        if (this.legislators && now - this.lastLegislatorUpdate < 24 * 60 * 60 * 1000) {
-            return this.legislators;
-        }
+    const representatives = [];
 
-        try {
-            const response = await fetch('https://theunitedstates.io/congress-legislators/legislators-current.json', {
-                signal: AbortSignal.timeout(CONFIG.API_TIMEOUT)
-            });
-            
-            if (!response.ok) throw new Error('Failed to fetch legislators');
-            
-            this.legislators = await response.json();
-            this.lastLegislatorUpdate = now;
-            return this.legislators;
-        } catch (error) {
-            console.error('Error fetching legislators:', error);
-            // Return cached data if available
-            if (this.legislators) return this.legislators;
-            throw error;
-        }
-    }
-
-    // Find representatives by location
-    async findRepresentativesByLocation(state, district = null) {
-        const legislators = await this.getLegislators();
-        
-        return legislators.filter(legislator => {
-            const currentTerm = legislator.terms[legislator.terms.length - 1];
-            
-            // Must match state
-            if (currentTerm.state !== state) return false;
-            
-            // If district specified, return matching House member
-            if (district && currentTerm.type === 'rep') {
-                return currentTerm.district === parseInt(district);
-            }
-            
-            // Otherwise return all representatives for the state
-            return true;
-        });
-    }
-
-    // Get campaign finance data
-    async getCampaignFinance(legislator) {
-        const cacheKey = `finance-${legislator.id.bioguide}-${new Date().getFullYear()}`;
-        const cached = this.cache.get(cacheKey);
-        
-        if (cached && Date.now() - cached.timestamp < CONFIG.CACHE_DURATION) {
-            return cached.data;
-        }
-
-        try {
-            // Clean up name for FEC search
-            const searchName = legislator.name.official_full
-                .replace(/\s+Jr\.?$|\s+Sr\.?$|\s+III?$/, '')
-                .trim();
-
-            // Search for candidate
-            const searchUrl = `https://api.open.fec.gov/v1/names/candidates/?q=${encodeURIComponent(searchName)}&api_key=${CONFIG.FEC_API_KEY}`;
-            const searchResponse = await fetch(searchUrl, {
-                signal: AbortSignal.timeout(CONFIG.API_TIMEOUT)
-            });
-
-            if (!searchResponse.ok) {
-                throw new Error(`FEC API error: ${searchResponse.status}`);
-            }
-
-            const searchData = await searchResponse.json();
-            
-            if (!searchData.results || searchData.results.length === 0) {
-                return this.getEmptyFinanceData();
-            }
-
-            // Find the most relevant candidate
-            const currentTerm = legislator.terms[legislator.terms.length - 1];
-            const officeCode = currentTerm.type === 'sen' ? 'S' : 'H';
-            
-            const candidate = searchData.results.find(c => 
-                c.office_sought === officeCode
-            ) || searchData.results[0];
-
-            // Get financial data
-            const financeUrl = `https://api.open.fec.gov/v1/candidates/${candidate.id}/totals/?api_key=${CONFIG.FEC_API_KEY}&cycle=2024`;
-            const financeResponse = await fetch(financeUrl, {
-                signal: AbortSignal.timeout(CONFIG.API_TIMEOUT)
-            });
-
-            if (!financeResponse.ok) {
-                throw new Error(`FEC API error: ${financeResponse.status}`);
-            }
-
-            const financeData = await financeResponse.json();
-            
-            if (!financeData.results || financeData.results.length === 0) {
-                return this.getEmptyFinanceData();
-            }
-
-            const finances = financeData.results[0];
-            const result = this.formatFinanceData(finances);
-
-            // Cache the result
-            this.cache.set(cacheKey, {
-                data: result,
-                timestamp: Date.now()
-            });
-
-            return result;
-
-        } catch (error) {
-            console.error('Error fetching campaign finance:', error);
-            return this.getEmptyFinanceData();
-        }
-    }
-
-    formatFinanceData(finances) {
-        const total = finances.receipts || 0;
-        const sources = [];
-
-        const addSource = (name, amount) => {
-            if (amount > 0) {
-                sources.push({
-                    name,
-                    amount: `$${amount.toLocaleString()}`,
-                    percentage: total > 0 ? Math.round((amount / total) * 100) : 0
-                });
-            }
-        };
-
-        addSource('Individual Contributions', finances.individual_contributions);
-        addSource('PAC Contributions', finances.other_political_committee_contributions);
-        addSource('Party Contributions', finances.party_committee_contributions);
-        addSource('Self-Funding', finances.candidate_contribution);
-
-        return {
-            totalRaised: `$${total.toLocaleString()}`,
-            sources,
-            lastReport: finances.coverage_end_date || 'Not available'
-        };
-    }
-
-    getEmptyFinanceData() {
-        return {
-            totalRaised: 'Data not available',
-            sources: [],
-            lastReport: 'Not available'
-        };
-    }
-}
-
-// Location service for ZIP code lookups
-class LocationService {
-    constructor() {
-        this.cache = new Map();
-    }
-
-    async getLocationFromZip(zipcode) {
-        // Check cache
-        const cached = this.cache.get(zipcode);
-        if (cached && Date.now() - cached.timestamp < CONFIG.CACHE_DURATION * 24) { // Cache for 24 hours
-            return cached.data;
-        }
-
-        // Try Google Civic API if available
+    try {
+        // If Google Civic API key is available, use it
         if (CONFIG.GOOGLE_CIVIC_API_KEY) {
-            try {
-                const location = await this.googleCivicLookup(zipcode);
-                this.cache.set(zipcode, {
-                    data: location,
-                    timestamp: Date.now()
-                });
-                return location;
-            } catch (error) {
-                console.error('Google Civic API error:', error);
-            }
-        }
-
-        // Fallback to basic ZIP mapping
-        return this.basicZipLookup(zipcode);
-    }
-
-    async googleCivicLookup(zipcode) {
-        const url = `https://www.googleapis.com/civicinfo/v2/representatives?address=${zipcode}&key=${CONFIG.GOOGLE_CIVIC_API_KEY}`;
-        const response = await fetch(url, {
-            signal: AbortSignal.timeout(CONFIG.API_TIMEOUT)
-        });
-
-        if (!response.ok) {
-            throw new Error(`Google Civic API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        
-        // Parse the response to find congressional district
-        // This is simplified - full implementation would parse all offices
-        const offices = data.offices || [];
-        const congressionalOffice = offices.find(office => 
-            office.name.includes('United States House of Representatives')
-        );
-
-        if (congressionalOffice && congressionalOffice.divisionId) {
-            // Parse division ID like "ocd-division/country:us/state:ca/cd:12"
-            const parts = congressionalOffice.divisionId.split('/');
-            const statePart = parts.find(p => p.startsWith('state:'));
-            const districtPart = parts.find(p => p.startsWith('cd:'));
+            const url = `https://www.googleapis.com/civicinfo/v2/representatives?address=${encodeURIComponent(address)}&key=${CONFIG.GOOGLE_CIVIC_API_KEY}&levels=country&roles=legislatorUpperBody&roles=legislatorLowerBody`;
             
-            if (statePart) {
-                return {
-                    state: statePart.split(':')[1].toUpperCase(),
-                    district: districtPart ? parseInt(districtPart.split(':')[1]) : null
-                };
-            }
-        }
-
-        // Fallback
-        return this.basicZipLookup(zipcode);
-    }
-
-    basicZipLookup(zipcode) {
-        // ZIP code ranges by state (simplified - real implementation would use full database)
-        const zipRanges = {
-            'AL': [[35000, 36999]],
-            'AK': [[99500, 99999]],
-            'AZ': [[85000, 86999]],
-            'AR': [[71600, 72999], [75500, 75599]],
-            'CA': [[90000, 96199]],
-            'CO': [[80000, 81999]],
-            'CT': [[6000, 6999]],
-            'DE': [[19700, 19999]],
-            'FL': [[32000, 34999]],
-            'GA': [[30000, 31999], [39800, 39999]],
-            'HI': [[96700, 96899]],
-            'ID': [[83200, 83999]],
-            'IL': [[60000, 62999]],
-            'IN': [[46000, 47999]],
-            'IA': [[50000, 52999]],
-            'KS': [[66000, 67999]],
-            'KY': [[40000, 42999]],
-            'LA': [[70000, 71599]],
-            'ME': [[3900, 4999]],
-            'MD': [[20600, 21999]],
-            'MA': [[1000, 2799], [5500, 5599]],
-            'MI': [[48000, 49999]],
-            'MN': [[55000, 56799]],
-            'MS': [[38600, 39999]],
-            'MO': [[63000, 65999]],
-            'MT': [[59000, 59999]],
-            'NE': [[68000, 69999]],
-            'NV': [[88900, 89999]],
-            'NH': [[3000, 3899]],
-            'NJ': [[7000, 8999]],
-            'NM': [[87000, 88499]],
-            'NY': [[10000, 14999], [6390, 6390]],
-            'NC': [[27000, 28999]],
-            'ND': [[58000, 58999]],
-            'OH': [[43000, 45999]],
-            'OK': [[73000, 74999]],
-            'OR': [[97000, 97999]],
-            'PA': [[15000, 19699]],
-            'RI': [[2800, 2999]],
-            'SC': [[29000, 29999]],
-            'SD': [[57000, 57999]],
-            'TN': [[37000, 38599]],
-            'TX': [[75000, 79999], [88500, 88599]],
-            'UT': [[84000, 84999]],
-            'VT': [[5000, 5999]],
-            'VA': [[20100, 20199], [22000, 24699]],
-            'WA': [[98000, 99499]],
-            'WV': [[24700, 26999]],
-            'WI': [[53000, 54999]],
-            'WY': [[82000, 83199]]
-        };
-
-        const zip = parseInt(zipcode);
-        
-        for (const [state, ranges] of Object.entries(zipRanges)) {
-            for (const [min, max] of ranges) {
-                if (zip >= min && zip <= max) {
-                    return { state, district: null };
+            const response = await fetch(url);
+            if (response.ok) {
+                const data = await response.json();
+                
+                // Parse Google Civic API response
+                if (data.officials && data.offices) {
+                    data.offices.forEach(office => {
+                        if (office.name.includes('United States Senate') || 
+                            office.name.includes('United States House')) {
+                            
+                            office.officialIndices.forEach(index => {
+                                const official = data.officials[index];
+                                const isHouse = office.name.includes('House');
+                                
+                                // Extract district number if House member
+                                let district = null;
+                                if (isHouse) {
+                                    const districtMatch = office.name.match(/District (\d+)/);
+                                    district = districtMatch ? districtMatch[1] : null;
+                                }
+                                
+                                representatives.push({
+                                    name: official.name,
+                                    type: isHouse ? 'Representative' : 'Senator',
+                                    party: official.party === 'Democratic Party' ? 'Democrat' : 
+                                           official.party === 'Republican Party' ? 'Republican' : 
+                                           official.party,
+                                    state: getStateFromAddress(address),
+                                    district: district,
+                                    phone: official.phones ? official.phones[0] : 'Not available',
+                                    website: official.urls ? official.urls[0] : 'Not available',
+                                    office: official.address ? formatAddress(official.address[0]) : 'Capitol Building, Washington, DC',
+                                    photoUrl: official.photoUrl || null,
+                                    channels: official.channels || []
+                                });
+                            });
+                        }
+                    });
                 }
             }
         }
-
-        // Default fallback
-        return { state: 'CA', district: null };
+        
+        // Fallback: Use TheUnitedStates.io data with state lookup
+        if (representatives.length === 0) {
+            const state = getStateFromAddress(address);
+            const legislatorsResponse = await fetch('https://theunitedstates.io/congress-legislators/legislators-current.json');
+            
+            if (legislatorsResponse.ok) {
+                const legislators = await legislatorsResponse.json();
+                
+                // Get all legislators for the state
+                const stateReps = legislators.filter(leg => {
+                    const currentTerm = leg.terms[leg.terms.length - 1];
+                    return currentTerm.state === state;
+                });
+                
+                // Add senators
+                stateReps.forEach(rep => {
+                    const currentTerm = rep.terms[rep.terms.length - 1];
+                    if (currentTerm.type === 'sen') {
+                        representatives.push({
+                            name: rep.name.official_full,
+                            type: 'Senator',
+                            party: currentTerm.party === 'Democrat' ? 'Democrat' : currentTerm.party,
+                            state: currentTerm.state,
+                            district: null,
+                            phone: currentTerm.phone || 'Not available',
+                            website: currentTerm.url || 'Not available',
+                            office: currentTerm.office || 'Senate Office Building, Washington, DC',
+                            bioguideId: rep.id.bioguide,
+                            fecId: rep.id.fec ? rep.id.fec[0] : null
+                        });
+                    }
+                });
+                
+                // Add note about House member
+                if (stateReps.some(r => r.terms[r.terms.length - 1].type === 'rep')) {
+                    // Without precise district info, we can't determine exact House member
+                    representatives.push({
+                        name: 'House Representative',
+                        type: 'Representative',
+                        party: 'Unknown',
+                        state: state,
+                        district: 'Unknown',
+                        phone: 'Use address lookup for accurate info',
+                        website: 'https://www.house.gov/representatives/find-your-representative',
+                        office: 'House Office Building, Washington, DC',
+                        note: 'For accurate House representative info, please enable Google Civic API'
+                    });
+                }
+            }
+        }
+        
+        // Cache the results
+        cache.set(cacheKey, {
+            data: representatives,
+            timestamp: Date.now()
+        });
+        
+        return representatives;
+        
+    } catch (error) {
+        console.error('Error fetching representatives:', error);
+        throw error;
     }
 }
 
-// Initialize services
-const congressionalService = new CongressionalDataService();
-const locationService = new LocationService();
+// Helper function to extract state from address
+function getStateFromAddress(address) {
+    // Simple regex to find state abbreviation
+    const stateMatch = address.match(/\b([A-Z]{2})\b(?:\s+\d{5})?$/);
+    return stateMatch ? stateMatch[1] : 'CA'; // Default to CA
+}
+
+// Helper function to format address
+function formatAddress(addr) {
+    if (!addr) return 'Capitol Building, Washington, DC';
+    return `${addr.line1}${addr.line2 ? ', ' + addr.line2 : ''}, ${addr.city}, ${addr.state} ${addr.zip}`;
+}
 
 // API Routes
-app.get('/api/congressman/:zipcode', async (req, res) => {
-    const zipcode = req.params.zipcode;
+app.get('/api/representatives', async (req, res) => {
+    const address = req.query.address;
     
-    // Validate ZIP code
-    if (!/^\d{5}$/.test(zipcode)) {
+    if (!address) {
         return res.status(400).json({
-            error: 'Invalid ZIP code',
-            message: 'Please provide a valid 5-digit ZIP code'
+            error: 'Address parameter is required'
         });
     }
-
+    
     try {
-        // Get location from ZIP
-        const location = await locationService.getLocationFromZip(zipcode);
-        
-        // Find representatives
-        const representatives = await congressionalService.findRepresentativesByLocation(
-            location.state,
-            location.district
-        );
-
-        if (representatives.length === 0) {
-            return res.status(404).json({
-                error: 'No representatives found',
-                message: 'Could not find representatives for this ZIP code'
-            });
-        }
-
-        // For now, return the first representative (House member preferred)
-        const houseRep = representatives.find(r => 
-            r.terms[r.terms.length - 1].type === 'rep'
-        );
-        const representative = houseRep || representatives[0];
-
-        // Get campaign finance data
-        const fundingData = await congressionalService.getCampaignFinance(representative);
-
-        // Format response
-        const currentTerm = representative.terms[representative.terms.length - 1];
-        const response = {
-            representative: {
-                name: representative.name.official_full,
-                party: currentTerm.party === 'Democrat' ? 'Democratic' : currentTerm.party,
-                state: currentTerm.state,
-                district: currentTerm.district || 'At-Large',
-                type: currentTerm.type === 'sen' ? 'Senator' : 'Representative',
-                office: currentTerm.office || 'Capitol Building, Washington, DC',
-                phone: currentTerm.phone || 'Not available',
-                website: currentTerm.url || 'Not available',
-                bioguideId: representative.id.bioguide
-            },
-            funding: fundingData,
-            votingRecord: await getVotingRecord(representative),
-            calendar: await getCalendarEvents(representative),
-            transcripts: await getTranscripts(representative)
-        };
-
-        res.json(response);
-
+        const representatives = await getRepresentativesByAddress(address);
+        res.json({ representatives });
     } catch (error) {
         console.error('API Error:', error);
         res.status(500).json({
-            error: 'Internal server error',
-            message: 'Unable to fetch representative data. Please try again later.'
+            error: 'Unable to fetch representatives',
+            message: 'Please check your address and try again'
         });
     }
 });
 
-// Placeholder functions for future features
-async function getVotingRecord(representative) {
-    // TODO: Implement when Congress.gov API is available
-    return [{
-        bill: "Voting records coming soon",
-        date: new Date().toISOString().split('T')[0],
-        vote: "—",
-        description: "Voting records will be available once Congress.gov API access is granted"
-    }];
-}
+// Voting record endpoint (placeholder)
+app.get('/api/voting-record/:bioguideId', async (req, res) => {
+    const bioguideId = req.params.bioguideId;
+    
+    // TODO: Implement with Congress.gov API when key is available
+    res.json({
+        votes: [
+            {
+                bill: {
+                    number: 'H.R. 1234',
+                    title: 'Infrastructure Investment Act'
+                },
+                description: 'A bill to provide funding for national infrastructure improvements',
+                date: '2024-03-15',
+                position: 'Yes'
+            },
+            {
+                bill: {
+                    number: 'S. 5678',
+                    title: 'Healthcare Reform Act'
+                },
+                description: 'A bill to expand healthcare access',
+                date: '2024-02-28',
+                position: 'No'
+            }
+        ]
+    });
+});
 
-async function getCalendarEvents(representative) {
-    // TODO: Implement calendar scraping
-    return [{
-        date: "TBD",
-        time: "TBD",
-        event: "Check representative's website",
-        location: representative.terms[representative.terms.length - 1].url || "Official website"
-    }];
-}
+// Campaign finance endpoint
+app.get('/api/campaign-finance/:identifier', async (req, res) => {
+    const identifier = req.params.identifier;
+    
+    try {
+        // Search for candidate in FEC database
+        const searchUrl = `https://api.open.fec.gov/v1/names/candidates/?q=${encodeURIComponent(identifier)}&api_key=${CONFIG.FEC_API_KEY}`;
+        const searchResponse = await fetch(searchUrl);
+        
+        if (!searchResponse.ok) {
+            throw new Error('FEC API error');
+        }
+        
+        const searchData = await searchResponse.json();
+        
+        if (searchData.results && searchData.results.length > 0) {
+            const candidateId = searchData.results[0].id;
+            
+            // Get financial summary
+            const financeUrl = `https://api.open.fec.gov/v1/candidates/${candidateId}/totals/?api_key=${CONFIG.FEC_API_KEY}&cycle=2024`;
+            const financeResponse = await fetch(financeUrl);
+            
+            if (financeResponse.ok) {
+                const financeData = await financeResponse.json();
+                
+                if (financeData.results && financeData.results.length > 0) {
+                    const finances = financeData.results[0];
+                    
+                    res.json({
+                        summary: {
+                            totalRaised: `$${(finances.receipts || 0).toLocaleString()}`,
+                            totalSpent: `$${(finances.disbursements || 0).toLocaleString()}`,
+                            cashOnHand: `$${(finances.cash_on_hand_end_period || 0).toLocaleString()}`,
+                            lastReport: finances.coverage_end_date || 'Not available'
+                        },
+                        sources: [
+                            {
+                                name: 'Individual Contributions',
+                                amount: `$${(finances.individual_contributions || 0).toLocaleString()}`,
+                                percentage: finances.receipts ? Math.round((finances.individual_contributions / finances.receipts) * 100) : 0
+                            },
+                            {
+                                name: 'PAC Contributions',
+                                amount: `$${(finances.other_political_committee_contributions || 0).toLocaleString()}`,
+                                percentage: finances.receipts ? Math.round((finances.other_political_committee_contributions / finances.receipts) * 100) : 0
+                            }
+                        ]
+                    });
+                    return;
+                }
+            }
+        }
+        
+        // No data found
+        res.json({
+            summary: null,
+            sources: []
+        });
+        
+    } catch (error) {
+        console.error('Campaign finance error:', error);
+        res.json({
+            summary: null,
+            sources: []
+        });
+    }
+});
 
-async function getTranscripts(representative) {
-    // TODO: Implement GovInfo API integration
-    return [{
-        title: "Transcripts coming soon",
-        date: new Date().toISOString().split('T')[0],
-        description: "Congressional transcripts will be available soon",
-        downloadUrl: "#"
-    }];
-}
-
-// Health check endpoint
+// Health check
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'healthy',
         timestamp: new Date().toISOString(),
-        config: {
-            hasFecApiKey: CONFIG.FEC_API_KEY !== 'DEMO_KEY',
-            hasCongressApiKey: !!CONFIG.CONGRESS_API_KEY,
-            hasGoogleCivicApiKey: !!CONFIG.GOOGLE_CIVIC_API_KEY
+        apis: {
+            googleCivic: CONFIG.GOOGLE_CIVIC_API_KEY ? 'configured' : 'not configured',
+            fec: CONFIG.FEC_API_KEY !== 'DEMO_KEY' ? 'configured' : 'using demo key',
+            congress: CONFIG.CONGRESS_API_KEY ? 'configured' : 'not configured'
         }
     });
 });
 
-// Serve HTML - handle both root structure and templates directory
+// Serve HTML
 app.get('/', (req, res) => {
-    // Try templates directory first
+    // Check both root and templates directory
+    const fs = require('fs');
     const templatesPath = path.join(__dirname, 'templates', 'index.html');
     const rootPath = path.join(__dirname, 'index.html');
     
-    // Check which file exists
-    const fs = require('fs');
-    if (fs.existsSync(templatesPath)) {
-        res.sendFile(templatesPath);
-    } else if (fs.existsSync(rootPath)) {
+    if (fs.existsSync(rootPath)) {
         res.sendFile(rootPath);
+    } else if (fs.existsSync(templatesPath)) {
+        res.sendFile(templatesPath);
     } else {
-        res.status(404).send('index.html not found. Please ensure it exists in either the root directory or templates/ directory.');
+        res.status(404).send('index.html not found');
     }
 });
 
 // Start server
 app.listen(CONFIG.PORT, () => {
-    console.log(`Congressional Tracker API`);
-    console.log(`=====================`);
+    console.log(`Congressional Tracker`);
+    console.log(`===================`);
     console.log(`Server running on port ${CONFIG.PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`API Keys configured:`);
-    console.log(`- FEC: ${CONFIG.FEC_API_KEY === 'DEMO_KEY' ? 'Using DEMO_KEY (limited)' : 'Custom key set'}`);
-    console.log(`- Congress.gov: ${CONFIG.CONGRESS_API_KEY ? 'Configured' : 'Not set'}`);
-    console.log(`- Google Civic: ${CONFIG.GOOGLE_CIVIC_API_KEY ? 'Configured' : 'Not set'}`);
-    console.log(`\nVisit http://localhost:${CONFIG.PORT}`);
+    console.log(`Visit http://localhost:${CONFIG.PORT}`);
+    console.log('\nAPI Status:');
+    console.log(`- Google Civic: ${CONFIG.GOOGLE_CIVIC_API_KEY ? '✓ Configured' : '✗ Not configured (limited accuracy)'}`);
+    console.log(`- FEC: ${CONFIG.FEC_API_KEY !== 'DEMO_KEY' ? '✓ Configured' : '⚠ Using DEMO_KEY'}`);
+    console.log(`- Congress.gov: ${CONFIG.CONGRESS_API_KEY ? '✓ Configured' : '✗ Not configured'}`);
 });
