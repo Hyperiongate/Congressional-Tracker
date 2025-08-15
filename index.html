@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Congressional Tracker - Find Your Representative</title>
+    <title>Congressional Tracker - Find Your Representatives</title>
     <style>
         * {
             margin: 0;
@@ -13,7 +13,7 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
             min-height: 100vh;
             color: #333;
         }
@@ -49,34 +49,34 @@
             box-shadow: 0 10px 40px rgba(0,0,0,0.1);
             margin-bottom: 30px;
             animation: slideUp 0.6s ease-out 0.2s both;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
         }
 
-        .search-box {
+        .address-form {
             display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
+            flex-direction: column;
+            gap: 20px;
         }
 
         input[type="text"] {
-            flex: 1;
             padding: 15px 20px;
             border: 2px solid #e0e0e0;
             border-radius: 10px;
             font-size: 16px;
             transition: all 0.3s ease;
-            min-width: 250px;
         }
 
         input[type="text"]:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #3b82f6;
             transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.2);
+            box-shadow: 0 5px 20px rgba(59, 130, 246, 0.2);
         }
 
         button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
             color: white;
             border: none;
             padding: 15px 40px;
@@ -85,12 +85,12 @@
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 5px 20px rgba(59, 130, 246, 0.3);
         }
 
         button:hover {
             transform: translateY(-3px);
-            box-shadow: 0 8px 30px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 8px 30px rgba(59, 130, 246, 0.4);
         }
 
         button:active {
@@ -102,121 +102,181 @@
             animation: fadeIn 0.5s ease-out;
         }
 
-        .congressman-card {
+        .representative-card {
             background: white;
             border-radius: 20px;
             padding: 30px;
             box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             transition: transform 0.3s ease;
         }
 
-        .congressman-card:hover {
+        .representative-card:hover {
             transform: translateY(-5px);
             box-shadow: 0 15px 50px rgba(0,0,0,0.15);
         }
 
-        .congressman-header {
+        .rep-header {
             display: flex;
             align-items: center;
             gap: 20px;
             margin-bottom: 25px;
-            flex-wrap: wrap;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
         }
 
-        .congressman-photo {
-            width: 100px;
-            height: 100px;
+        .rep-photo {
+            width: 80px;
+            height: 80px;
             border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
-            font-size: 36px;
+            font-size: 28px;
             font-weight: bold;
         }
 
-        .congressman-info h2 {
-            color: #333;
+        .rep-info h2 {
+            color: #1e3a8a;
             margin-bottom: 5px;
+            font-size: 1.5em;
         }
 
-        .congressman-info p {
+        .rep-info p {
             color: #666;
             margin: 3px 0;
         }
 
-        .tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #e0e0e0;
-            flex-wrap: wrap;
+        .rep-type {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
         }
 
-        .tab {
-            padding: 12px 24px;
-            background: none;
-            border: none;
-            color: #666;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: 500;
-            transition: all 0.3s ease;
-            border-radius: 10px 10px 0 0;
-            box-shadow: none;
+        .senator {
+            background: #dbeafe;
+            color: #1e3a8a;
         }
 
-        .tab:hover {
-            color: #667eea;
-            background: rgba(102, 126, 234, 0.1);
-            transform: none;
-            box-shadow: none;
+        .representative {
+            background: #dcfce7;
+            color: #166534;
         }
 
-        .tab.active {
-            color: white;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.3);
-        }
-
-        .tab-content {
-            display: none;
-            padding: 20px 0;
-            animation: fadeIn 0.3s ease-out;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        .voting-record {
+        .action-buttons {
             display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
+            margin-top: 20px;
         }
 
-        .vote-item {
-            padding: 20px;
-            background: #f8f9fa;
+        .action-btn {
+            padding: 15px 20px;
+            background: #f3f4f6;
+            border: 2px solid transparent;
             border-radius: 10px;
-            border-left: 4px solid #667eea;
+            text-align: center;
+            cursor: pointer;
             transition: all 0.3s ease;
-        }
-
-        .vote-item:hover {
-            background: #f0f2f5;
-            transform: translateX(5px);
-        }
-
-        .vote-item h4 {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
             color: #333;
-            margin-bottom: 8px;
         }
 
-        .vote-item p {
+        .action-btn:hover {
+            background: white;
+            border-color: #3b82f6;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+
+        .action-btn i {
+            font-size: 24px;
+            color: #3b82f6;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .modal-content {
+            position: relative;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            margin: 50px auto;
+            animation: slideUp 0.3s ease;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-size: 30px;
+            color: #999;
+            cursor: pointer;
+            transition: color 0.3s ease;
+        }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
             color: #666;
-            line-height: 1.6;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid #c33;
+        }
+
+        .vote-item, .funding-item, .contact-item {
+            padding: 15px;
+            background: #f9fafb;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border-left: 4px solid #3b82f6;
+        }
+
+        .vote-item h4, .funding-item h4 {
+            color: #1e3a8a;
+            margin-bottom: 8px;
         }
 
         .vote-result {
@@ -238,95 +298,14 @@
             color: #721c24;
         }
 
-        .funding-chart {
-            background: #f8f9fa;
-            padding: 30px;
-            border-radius: 15px;
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        .calendar-events {
-            display: grid;
-            gap: 15px;
-        }
-
-        .event-item {
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            transition: all 0.3s ease;
-        }
-
-        .event-item:hover {
-            background: #f0f2f5;
-            transform: translateX(5px);
-        }
-
-        .event-date {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 10px 15px;
-            border-radius: 8px;
-            font-weight: 600;
-            min-width: 80px;
-            text-align: center;
-        }
-
-        .transcript-item {
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 10px;
-            margin-bottom: 15px;
-            transition: all 0.3s ease;
-        }
-
-        .transcript-item:hover {
-            background: #f0f2f5;
-        }
-
-        .download-btn {
-            background: #28a745;
-            color: white;
-            padding: 8px 20px;
-            border-radius: 5px;
-            text-decoration: none;
-            display: inline-block;
-            margin-top: 10px;
-            font-size: 14px;
-            transition: all 0.3s ease;
-        }
-
-        .download-btn:hover {
-            background: #218838;
-            transform: translateY(-2px);
-        }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #666;
-        }
-
-        .error-message {
-            background: #f8d7da;
-            color: #721c24;
-            padding: 15px 20px;
-            border-radius: 10px;
-            margin: 20px 0;
-            border-left: 4px solid #f5c6cb;
+        .vote-present {
+            background: #fff3cd;
+            color: #856404;
         }
 
         @keyframes fadeIn {
-            from {
-                opacity: 0;
-            }
-            to {
-                opacity: 1;
-            }
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
 
         @keyframes slideUp {
@@ -340,19 +319,15 @@
             }
         }
 
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
         @media (max-width: 768px) {
-            h1 {
-                font-size: 2em;
-            }
-            
-            .congressman-header {
-                text-align: center;
-                justify-content: center;
-            }
-            
-            .tabs {
-                justify-content: center;
-            }
+            h1 { font-size: 2em; }
+            .rep-header { flex-direction: column; text-align: center; }
+            .action-buttons { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -360,16 +335,21 @@
     <div class="container">
         <header>
             <h1>Congressional Tracker</h1>
-            <p class="subtitle">Track Your Representative's Voting Record, Funding, and Public Activities</p>
+            <p class="subtitle">Find Your Representatives and Track Their Activities</p>
         </header>
 
         <div class="search-section">
-            <h3 style="margin-bottom: 20px; color: #333;">Find Your Representative</h3>
-            <div class="search-box">
-                <input type="text" id="zipcode" placeholder="Enter your ZIP code" maxlength="5">
-                <button onclick="findRepresentative()">Find My Representative</button>
-            </div>
-            <p style="color: #666; font-size: 14px;">Enter your 5-digit ZIP code to find your congressional representative</p>
+            <h3 style="margin-bottom: 20px; color: #1e3a8a;">Enter Your Address</h3>
+            <form class="address-form" onsubmit="findRepresentatives(event)">
+                <input type="text" id="street" placeholder="Street Address" required>
+                <input type="text" id="city" placeholder="City" required>
+                <input type="text" id="state" placeholder="State (e.g., CA)" maxlength="2" required>
+                <input type="text" id="zipcode" placeholder="ZIP Code" maxlength="5" required>
+                <button type="submit">Find My Representatives</button>
+            </form>
+            <p style="color: #666; font-size: 14px; margin-top: 15px; text-align: center;">
+                We'll find your U.S. Representatives and Senators based on your address
+            </p>
         </div>
 
         <div id="results" class="results-section">
@@ -377,27 +357,41 @@
         </div>
     </div>
 
+    <!-- Modal for displaying detailed information -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal()">&times;</span>
+            <div id="modal-body">
+                <!-- Modal content will be populated here -->
+            </div>
+        </div>
+    </div>
+
     <script>
-        async function findRepresentative() {
+        // Representative data structure
+        let currentRepresentatives = [];
+
+        async function findRepresentatives(event) {
+            event.preventDefault();
+            
+            const street = document.getElementById('street').value;
+            const city = document.getElementById('city').value;
+            const state = document.getElementById('state').value.toUpperCase();
             const zipcode = document.getElementById('zipcode').value;
             
-            if (zipcode.length !== 5 || isNaN(zipcode)) {
-                showError('Please enter a valid 5-digit ZIP code');
-                return;
-            }
-
+            const fullAddress = `${street}, ${city}, ${state} ${zipcode}`;
+            
             // Show loading state
             const resultsDiv = document.getElementById('results');
             resultsDiv.style.display = 'block';
-            resultsDiv.innerHTML = '<div class="loading">Finding your representative...</div>';
+            resultsDiv.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>Finding your representatives...</p></div>';
 
             try {
-                // Call the correct backend endpoint
-                const response = await fetch(`/api/congressman/${zipcode}`);
+                // Call backend API with full address
+                const response = await fetch(`/api/representatives?address=${encodeURIComponent(fullAddress)}`);
                 
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.message || 'Failed to fetch data');
+                    throw new Error('Failed to fetch representatives');
                 }
                 
                 const data = await response.json();
@@ -405,8 +399,75 @@
                 
             } catch (error) {
                 console.error('Error:', error);
-                showError(error.message || 'Unable to find representative. Please try again later.');
+                showError('Unable to find representatives. Please check your address and try again.');
             }
+        }
+
+        function displayResults(data) {
+            const resultsDiv = document.getElementById('results');
+            currentRepresentatives = data.representatives || [];
+            
+            if (currentRepresentatives.length === 0) {
+                showError('No representatives found for this address.');
+                return;
+            }
+            
+            let html = '<h2 style="color: white; text-align: center; margin-bottom: 30px;">Your Congressional Representatives</h2>';
+            
+            currentRepresentatives.forEach((rep, index) => {
+                const initials = rep.name.split(' ')
+                    .map(n => n[0])
+                    .filter(n => n && n.match(/[A-Z]/))
+                    .slice(0, 2)
+                    .join('');
+                
+                const typeClass = rep.type === 'Senator' ? 'senator' : 'representative';
+                const typeLabel = rep.type === 'Senator' ? 'U.S. Senator' : 'U.S. Representative';
+                
+                html += `
+                    <div class="representative-card">
+                        <div class="rep-header">
+                            <div class="rep-photo">${initials}</div>
+                            <div class="rep-info">
+                                <h2>
+                                    ${rep.name}
+                                    <span class="rep-type ${typeClass}">${typeLabel}</span>
+                                </h2>
+                                <p>${rep.party} - ${rep.state} ${rep.district ? `District ${rep.district}` : ''}</p>
+                            </div>
+                        </div>
+                        
+                        <div class="action-buttons">
+                            <button class="action-btn" onclick="showVotingRecord(${index})">
+                                <i>🗳️</i>
+                                <span>Voting Record</span>
+                            </button>
+                            
+                            <button class="action-btn" onclick="showCampaignFinance(${index})">
+                                <i>💰</i>
+                                <span>Campaign Finance</span>
+                            </button>
+                            
+                            <button class="action-btn" onclick="showCalendar(${index})">
+                                <i>📅</i>
+                                <span>Daily Calendar</span>
+                            </button>
+                            
+                            <button class="action-btn" onclick="showTranscripts(${index})">
+                                <i>📄</i>
+                                <span>Transcripts</span>
+                            </button>
+                            
+                            <button class="action-btn" onclick="showContact(${index})">
+                                <i>📞</i>
+                                <span>How to Contact</span>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            resultsDiv.innerHTML = html;
         }
 
         function showError(message) {
@@ -415,140 +476,175 @@
             resultsDiv.innerHTML = `<div class="error-message">${message}</div>`;
         }
 
-        function displayResults(data) {
-            const resultsDiv = document.getElementById('results');
-            const rep = data.representative;
+        // Modal functions for each feature
+        async function showVotingRecord(index) {
+            const rep = currentRepresentatives[index];
+            showModal('Voting Record', `
+                <h3>${rep.name}'s Recent Voting Record</h3>
+                <div class="loading"><div class="loading-spinner"></div><p>Loading voting record...</p></div>
+            `);
             
-            // Get initials for photo placeholder
-            const initials = rep.name.split(' ')
-                .map(n => n[0])
-                .filter(n => n && n.match(/[A-Z]/))
-                .slice(0, 2)
-                .join('');
-            
-            resultsDiv.innerHTML = `
-                <div class="congressman-card">
-                    <div class="congressman-header">
-                        <div class="congressman-photo">
-                            ${initials}
-                        </div>
-                        <div class="congressman-info">
-                            <h2>${rep.name}</h2>
-                            <p>${rep.party} - ${rep.state} ${rep.type === 'Senator' ? 'Senator' : `District ${rep.district}`}</p>
-                            <p>📞 ${rep.phone}</p>
-                            <p>🏢 ${rep.office}</p>
-                            ${rep.website !== 'Not available' ? `<p>🌐 <a href="${rep.website}" target="_blank" style="color: #667eea;">Official Website</a></p>` : ''}
-                        </div>
-                    </div>
-
-                    <div class="tabs">
-                        <button class="tab active" onclick="showTab('voting')">Voting Record</button>
-                        <button class="tab" onclick="showTab('funding')">Campaign Funding</button>
-                        <button class="tab" onclick="showTab('calendar')">Calendar</button>
-                        <button class="tab" onclick="showTab('transcripts')">Transcripts</button>
-                    </div>
-
-                    <div id="voting" class="tab-content active">
-                        <h3 style="margin-bottom: 20px;">Recent Voting Record</h3>
-                        <div class="voting-record">
-                            ${data.votingRecord.map(vote => `
-                                <div class="vote-item">
-                                    <h4>${vote.bill}</h4>
-                                    <p>${vote.description}</p>
-                                    <p style="color: #666; font-size: 14px;">Date: ${vote.date}</p>
-                                    ${vote.vote !== '—' ? `
-                                        <span class="vote-result ${vote.vote === 'Yes' ? 'vote-yes' : 'vote-no'}">
-                                            Voted: ${vote.vote}
-                                        </span>
-                                    ` : ''}
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-
-                    <div id="funding" class="tab-content">
-                        <h3 style="margin-bottom: 20px;">Campaign Funding Sources</h3>
-                        <div class="funding-chart">
-                            <h2 style="color: #667eea; margin-bottom: 20px;">Total Raised: ${data.funding.totalRaised}</h2>
-                            ${data.funding.sources.length > 0 ? data.funding.sources.map(source => `
-                                <div style="margin-bottom: 15px; text-align: left;">
-                                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                                        <span style="font-weight: 600;">${source.name}</span>
-                                        <span>${source.amount}</span>
-                                    </div>
-                                    <div style="background: #e0e0e0; border-radius: 10px; height: 30px; overflow: hidden;">
-                                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                                                    height: 100%; width: ${source.percentage}%; 
-                                                    border-radius: 10px; transition: width 1s ease;">
-                                        </div>
-                                    </div>
-                                    <p style="color: #666; font-size: 14px; margin-top: 5px;">${source.percentage}% of total</p>
-                                </div>
-                            `).join('') : '<p style="color: #666;">Campaign finance data is being retrieved. This may take a moment due to FEC API limitations.</p>'}
-                            ${data.funding.lastReport && data.funding.lastReport !== 'Not available' ? 
-                                `<p style="color: #666; font-size: 14px; margin-top: 20px;">Last report: ${data.funding.lastReport}</p>` : ''}
-                        </div>
-                    </div>
-
-                    <div id="calendar" class="tab-content">
-                        <h3 style="margin-bottom: 20px;">Upcoming Events</h3>
-                        <div class="calendar-events">
-                            ${data.calendar.map(event => `
-                                <div class="event-item">
-                                    <div class="event-date">${event.date}</div>
-                                    <div>
-                                        <h4 style="margin-bottom: 5px;">${event.event}</h4>
-                                        <p style="color: #666; margin: 0;">📍 ${event.location}</p>
-                                        ${event.time !== 'TBD' ? `<p style="color: #666; margin: 0;">🕐 ${event.time}</p>` : ''}
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-
-                    <div id="transcripts" class="tab-content">
-                        <h3 style="margin-bottom: 20px;">Public Speaking Transcripts</h3>
-                        ${data.transcripts.map(transcript => `
-                            <div class="transcript-item">
-                                <h4>${transcript.title}</h4>
-                                <p style="color: #666; margin: 10px 0;">${transcript.description}</p>
-                                <p style="color: #666; font-size: 14px;">Date: ${transcript.date}</p>
-                                ${transcript.downloadUrl !== '#' ? `
-                                    <a href="${transcript.downloadUrl}" class="download-btn">
-                                        📄 Download Transcript
-                                    </a>
-                                ` : ''}
+            try {
+                const response = await fetch(`/api/voting-record/${rep.bioguideId}`);
+                const data = await response.json();
+                
+                let html = `<h3>${rep.name}'s Recent Voting Record</h3>`;
+                
+                if (data.votes && data.votes.length > 0) {
+                    data.votes.forEach(vote => {
+                        const voteClass = vote.position === 'Yes' ? 'vote-yes' : 
+                                        vote.position === 'No' ? 'vote-no' : 'vote-present';
+                        html += `
+                            <div class="vote-item">
+                                <h4>${vote.bill.number} - ${vote.bill.title}</h4>
+                                <p>${vote.description}</p>
+                                <p style="color: #666; font-size: 14px;">Date: ${vote.date}</p>
+                                <span class="vote-result ${voteClass}">
+                                    Voted: ${vote.position}
+                                </span>
                             </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-        }
-
-        function showTab(tabName) {
-            // Hide all tabs
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-
-            // Show selected tab
-            document.getElementById(tabName).classList.add('active');
-            event.target.classList.add('active');
-        }
-
-        // Allow Enter key to trigger search
-        document.getElementById('zipcode').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                findRepresentative();
+                        `;
+                    });
+                } else {
+                    html += '<p>Voting record data is currently unavailable. Please check back later.</p>';
+                }
+                
+                document.getElementById('modal-body').innerHTML = html;
+            } catch (error) {
+                document.getElementById('modal-body').innerHTML = `
+                    <h3>${rep.name}'s Voting Record</h3>
+                    <p>Unable to load voting record at this time.</p>
+                `;
             }
+        }
+
+        async function showCampaignFinance(index) {
+            const rep = currentRepresentatives[index];
+            showModal('Campaign Finance', `
+                <h3>${rep.name}'s Campaign Finance</h3>
+                <div class="loading"><div class="loading-spinner"></div><p>Loading campaign finance data...</p></div>
+            `);
+            
+            try {
+                const response = await fetch(`/api/campaign-finance/${rep.fecId || rep.name}`);
+                const data = await response.json();
+                
+                let html = `<h3>${rep.name}'s Campaign Finance</h3>`;
+                
+                if (data.summary) {
+                    html += `
+                        <div class="funding-item">
+                            <h4>Total Raised: ${data.summary.totalRaised}</h4>
+                            <p>Total Spent: ${data.summary.totalSpent}</p>
+                            <p>Cash on Hand: ${data.summary.cashOnHand}</p>
+                            <p style="color: #666; font-size: 14px;">Last Report: ${data.summary.lastReport}</p>
+                        </div>
+                    `;
+                }
+                
+                if (data.sources && data.sources.length > 0) {
+                    html += '<h4 style="margin-top: 20px;">Funding Sources:</h4>';
+                    data.sources.forEach(source => {
+                        html += `
+                            <div class="funding-item">
+                                <h4>${source.name}</h4>
+                                <p>Amount: ${source.amount} (${source.percentage}%)</p>
+                            </div>
+                        `;
+                    });
+                } else {
+                    html += '<p>Campaign finance data is currently unavailable.</p>';
+                }
+                
+                document.getElementById('modal-body').innerHTML = html;
+            } catch (error) {
+                document.getElementById('modal-body').innerHTML = `
+                    <h3>${rep.name}'s Campaign Finance</h3>
+                    <p>Unable to load campaign finance data at this time.</p>
+                `;
+            }
+        }
+
+        async function showCalendar(index) {
+            const rep = currentRepresentatives[index];
+            showModal('Daily Calendar', `
+                <h3>${rep.name}'s Public Calendar</h3>
+                <p>Congressional calendars are typically available through:</p>
+                <ul>
+                    <li>Official congressional website</li>
+                    <li>Committee schedules on congress.gov</li>
+                    <li>Town hall announcements on representative's website</li>
+                </ul>
+                <p><a href="${rep.website}" target="_blank" style="color: #3b82f6;">Visit ${rep.name}'s Official Website →</a></p>
+            `);
+        }
+
+        async function showTranscripts(index) {
+            const rep = currentRepresentatives[index];
+            showModal('Transcripts', `
+                <h3>${rep.name}'s Public Speaking Transcripts</h3>
+                <p>Congressional transcripts are available from:</p>
+                <ul>
+                    <li><strong>Congressional Record:</strong> <a href="https://www.congress.gov/congressional-record" target="_blank" style="color: #3b82f6;">congress.gov/congressional-record</a></li>
+                    <li><strong>Committee Hearings:</strong> Available on relevant committee websites</li>
+                    <li><strong>C-SPAN:</strong> <a href="https://www.c-span.org/" target="_blank" style="color: #3b82f6;">c-span.org</a></li>
+                </ul>
+                <p>Search for "${rep.name}" on these platforms to find recent speeches and statements.</p>
+            `);
+        }
+
+        function showContact(index) {
+            const rep = currentRepresentatives[index];
+            showModal('Contact Information', `
+                <h3>How to Contact ${rep.name}</h3>
+                <div class="contact-item">
+                    <h4>📞 Phone</h4>
+                    <p>${rep.phone || 'Not available'}</p>
+                </div>
+                <div class="contact-item">
+                    <h4>🏢 Office Address</h4>
+                    <p>${rep.office || 'Capitol Building, Washington, DC'}</p>
+                </div>
+                <div class="contact-item">
+                    <h4>🌐 Website</h4>
+                    <p><a href="${rep.website}" target="_blank" style="color: #3b82f6;">${rep.website}</a></p>
+                </div>
+                <div class="contact-item">
+                    <h4>✉️ Contact Form</h4>
+                    <p>Most representatives have contact forms on their official websites for constituents.</p>
+                </div>
+                <p style="margin-top: 20px; color: #666; font-size: 14px;">
+                    <strong>Tip:</strong> When contacting your representative, mention that you are a constituent 
+                    and include your full address to ensure your message receives proper attention.
+                </p>
+            `);
+        }
+
+        function showModal(title, content) {
+            document.getElementById('modal-body').innerHTML = content;
+            document.getElementById('modal').style.display = 'block';
+        }
+
+        function closeModal() {
+            document.getElementById('modal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('modal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+
+        // State input formatting
+        document.getElementById('state').addEventListener('input', function(e) {
+            e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2);
         });
 
-        // Auto-focus on ZIP code input
-        window.addEventListener('load', function() {
-            document.getElementById('zipcode').focus();
+        // ZIP code input formatting
+        document.getElementById('zipcode').addEventListener('input', function(e) {
+            e.target.value = e.target.value.replace(/[^\d]/g, '').slice(0, 5);
         });
     </script>
 </body>
