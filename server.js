@@ -1,4 +1,20 @@
-const express = require('express');
+// Ensure we always return something
+        if (representatives.length === 0) {
+            // At minimum, return a message to the user
+            representatives.push({
+                name: 'Unable to load representatives',
+                type: 'Error',
+                party: 'N/A',
+                state: getStateFromAddress(address),
+                district: 'N/A',
+                phone: 'Please try again',
+                website: 'https://www.house.gov/representatives/find-your-representative',
+                office: 'Data temporarily unavailable',
+                note: 'The congressional data service is temporarily unavailable. Please try again in a few moments or use the House.gov lookup tool.'
+            });
+        }
+        
+        console.log(`Returning ${representatives.length} representatives for ${address}`);const express = require('express');
 const path = require('path');
 const app = express();
 
@@ -128,6 +144,24 @@ async function getRepresentativesByAddress(address) {
             }
         }
         
+        // Ensure we always return something
+        if (representatives.length === 0) {
+            // At minimum, return a message to the user
+            representatives.push({
+                name: 'Unable to load representatives',
+                type: 'Error',
+                party: 'N/A',
+                state: getStateFromAddress(address),
+                district: 'N/A',
+                phone: 'Please try again',
+                website: 'https://www.house.gov/representatives/find-your-representative',
+                office: 'Data temporarily unavailable',
+                note: 'The congressional data service is temporarily unavailable. Please try again in a few moments or use the House.gov lookup tool.'
+            });
+        }
+        
+        console.log(`Returning ${representatives.length} representatives for ${address}`);
+        
         // Cache the results
         cache.set(cacheKey, {
             data: representatives,
@@ -167,6 +201,7 @@ app.get('/api/representatives', async (req, res) => {
     
     try {
         const representatives = await getRepresentativesByAddress(address);
+        console.log(`Found ${representatives.length} representatives for address: ${address}`);
         res.json({ representatives });
     } catch (error) {
         console.error('API Error:', error);
