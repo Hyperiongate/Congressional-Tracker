@@ -434,6 +434,7 @@
                                     <span class="rep-type ${typeClass}">${typeLabel}</span>
                                 </h2>
                                 <p>${rep.party} - ${rep.state} ${rep.district ? `District ${rep.district}` : ''}</p>
+                                ${rep.note ? `<p style="color: #ef4444; font-size: 0.875rem; margin-top: 5px;">⚠️ ${rep.note}</p>` : ''}
                             </div>
                         </div>
                         
